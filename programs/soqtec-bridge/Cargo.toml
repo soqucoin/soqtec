@@ -1,0 +1,22 @@
+[package]
+name = "soqtec-bridge"
+version = "0.1.0"
+description = "SOQ-TEC: Quantum-Tolerant Ecosystem Custody Bridge for Solana"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/soqucoin/soqtec"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "soqtec_bridge"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = "0.30"
+anchor-spl = "0.30"

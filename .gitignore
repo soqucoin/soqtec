@@ -37,6 +37,10 @@ Cargo.lock
 keypair.json
 *-keypair.json
 
+# Logs
+logs/
+*.log
+
 # AI agent files
 GEMINI.md
 .gemini/
