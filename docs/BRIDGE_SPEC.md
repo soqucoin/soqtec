@@ -445,7 +445,61 @@ Fees are deducted from the transfer amount. Fee distribution:
 
 ---
 
-## 11. Upgrade Path
+## 11. XMSS-Lite Revolving Vault (Quantum-Safe SPL Custody)
+
+> **Full design specification:** `soqucoin-ops/design-log/DL-SOQTEC-REVOLVING-VAULT.md`
+> **Status:** Patent review — implementation pending IP filing
+
+### Problem
+
+The original Winternitz vault (SIMD-0075) has two critical limitations for bridge integration:
+single-use keys (every withdrawal burns the keypair) and SOL-only support (no SPL tokens).
+This creates a quantum-exposed gap where returning bridge tokens must land in an Ed25519
+wallet between vault cycles.
+
+### Solution: Three Novel Mechanisms
+
+1. **XMSS-Lite** — Merkle tree of WOTS+ keypairs gives 1,024+ signatures per vault (vs. 1).
+   On-chain leaf index prevents key reuse. Based on RFC 8391 / NIST SP 800-208.
+
+2. **Direct-Mint-to-Vault** — Returning bridge tokens (pSOQ) are minted directly into the
+   user's active XMSS vault ATA. Value never touches an Ed25519 wallet.
+
+3. **Atomic Vault Rotation** — When a vault exhausts its key tree, the bridge program
+   atomically closes the old vault and opens a new one in a single transaction.
+
+### End-to-End PQ Chain
+
+```
+pSOQ in XMSS vault (WOTS+ PQ) → bridge burn → Dilithium attestation (PQ)
+    → SOQ in L1 vault (ML-DSA-44 PQ) → bridge back → mint into XMSS vault (PQ)
+
+Ed25519 touches the VALUE: never.
+```
+
+### Compute Feasibility
+
+| Operation | Compute Units |
+|-----------|---------------|
+| WOTS+ signature verification | ~200,000 |
+| Merkle path (10-level tree) | ~40,000 |
+| SPL token transfer CPI | ~20,000 |
+| Bridge burn CPI | ~30,000 |
+| **Total** | **~300,000 (21% of 1.4M limit)** |
+
+### Comparison
+
+| Property | Original Winternitz | SOQ-TEC Revolving Vault |
+|----------|--------------------|-----------------------|
+| Asset support | SOL only | Any SPL token |
+| Signatures per vault | 1 | 1,024+ |
+| Quantum-exposed gap | Yes | None |
+| Bridge integration | None | Native CPI |
+| Key reuse safety | User responsibility | On-chain enforcement |
+
+---
+
+## 12. Upgrade Path
 
 ### Hackathon (v1.0)
 - Custom 3-of-5 relayer with Dilithium attestation
@@ -454,13 +508,14 @@ Fees are deducted from the transfer amount. Fee distribution:
 - Merkle commitment scheme for Solana-side verification
 
 ### Post-Hackathon (v1.1)
+- XMSS-Lite Revolving Vault program (pending patent filing)
 - Solana mainnet deployment
 - Permissionless validator onboarding (stake + Dilithium key registration)
 - Dilithium BPF verifier on Solana (eliminates Merkle root pre-registration)
 
 ### Production (v2.0)
-- Multi-asset support (any SPL token → PQ custody)
+- Multi-asset support (any SPL token → PQ custody via XMSS-Lite)
 - Soqucoin mainnet vault
 - LatticeFold+ L2 fast-path for bridge settlements
 - Full external audit (bridge-specific, in addition to Halborn L1 audit)
-- Winternitz vault integration: SOQ-TEC as the PQ backend for Solana's SIMD-0075 vaults
+- Client SDK for XMSS key tree generation and vault management
