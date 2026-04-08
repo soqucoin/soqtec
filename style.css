@@ -1,0 +1,1053 @@
+/* =========================================================
+   SOQ-TEC TERMINAL v1.0 — Pip-Boy Inspired Interface
+   Soqucoin Operations for Quantum-Tolerant Ecosystem Custody
+   "Prepared for the Quantum Future"
+   ========================================================= */
+
+/* --- CSS Reset & Base --- */
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    /* Pip-Boy Amber-Green Palette */
+    --pip-primary: #1aff80;
+    --pip-bright: #33ffaa;
+    --pip-dim: #0d7a3d;
+    --pip-darker: #064d25;
+    --pip-darkest: #032313;
+    --pip-bg: #040d07;
+    --pip-screen-bg: #050e08;
+    --pip-amber: #ffb833;
+    --pip-amber-dim: #99701f;
+    --pip-red: #ff3333;
+    --pip-red-dim: #7a1a1a;
+
+    /* Glow effects — subtle for readability */
+    --glow-sm: 0 0 2px rgba(26, 255, 128, 0.3);
+    --glow-md: 0 0 4px rgba(26, 255, 128, 0.3);
+    --glow-lg: 0 0 6px var(--pip-primary), 0 0 14px rgba(26, 255, 128, 0.15);
+    --glow-text: 0 0 4px rgba(26, 255, 128, 0.3);
+
+    /* Typography */
+    --font-terminal: 'VT323', 'Courier New', monospace;
+    --font-mono: 'Share Tech Mono', 'Courier New', monospace;
+}
+
+html {
+    font-size: 16px;
+    height: 100%;
+}
+
+body {
+    font-family: var(--font-terminal);
+    background: #000;
+    color: var(--pip-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+    letter-spacing: 0.5px;
+    -webkit-font-smoothing: none;
+}
+
+/* --- CRT Screen Effects --- */
+.crt-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 9998;
+    background: radial-gradient(
+        ellipse at center,
+        transparent 60%,
+        rgba(0, 0, 0, 0.25) 100%
+    );
+}
+
+.scanline-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 9997;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.15) 2px,
+        rgba(0, 0, 0, 0.15) 4px
+    );
+}
+
+.vignette-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 9996;
+    box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.7);
+}
+
+/* --- Screen Flicker Animation --- */
+@keyframes flicker {
+    0%, 95%, 100% { opacity: 1; }
+    96% { opacity: 0.92; }
+    97% { opacity: 0.98; }
+    98% { opacity: 0.94; }
+}
+
+@keyframes subtle-flicker {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.985; }
+}
+
+@keyframes glow-pulse {
+    0%, 100% { text-shadow: var(--glow-text); }
+    50% { text-shadow: 0 0 8px var(--pip-primary), 0 0 16px rgba(26, 255, 128, 0.5); }
+}
+
+@keyframes cursor-blink {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: 0; }
+}
+
+@keyframes scan-down {
+    0% { top: -5%; }
+    100% { top: 105%; }
+}
+
+@keyframes bar-fill {
+    from { width: 0%; }
+}
+
+@keyframes slide-in-up {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes status-blink {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: 0.4; }
+}
+
+/* --- Boot Screen --- */
+.boot-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--pip-bg);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: subtle-flicker 0.1s infinite;
+}
+
+.boot-content {
+    max-width: 700px;
+    width: 90%;
+    padding: 2rem;
+}
+
+.boot-text {
+    font-family: var(--font-terminal);
+    font-size: 1.15rem;
+    color: var(--pip-primary);
+    text-shadow: var(--glow-text);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.cursor-blink {
+    font-family: var(--font-terminal);
+    font-size: 1.15rem;
+    color: var(--pip-primary);
+    text-shadow: var(--glow-text);
+    animation: cursor-blink 0.7s step-end infinite;
+}
+
+/* --- Main Terminal --- */
+.main-terminal {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0;
+    min-height: 100vh;
+    position: relative;
+    animation: subtle-flicker 4s infinite;
+}
+
+.main-terminal.hidden {
+    display: none;
+}
+
+/* --- Pip-Boy Frame Bezel --- */
+.main-terminal::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border: 3px solid var(--pip-darker);
+    border-radius: 12px;
+    pointer-events: none;
+    z-index: 100;
+    box-shadow: 
+        inset 0 0 40px rgba(26, 255, 128, 0.03),
+        0 0 20px rgba(26, 255, 128, 0.05);
+}
+
+/* --- Terminal Header (Pip-Boy Top Bar) --- */
+.terminal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 1.5rem;
+    background: linear-gradient(180deg, var(--pip-darkest) 0%, var(--pip-bg) 100%);
+    border-bottom: 2px solid var(--pip-dim);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.header-icon {
+    font-size: 1.2rem;
+    color: var(--pip-bright);
+    text-shadow: var(--glow-md);
+    animation: glow-pulse 3s ease-in-out infinite;
+}
+
+.header-title {
+    font-family: var(--font-terminal);
+    font-size: 1.4rem;
+    color: var(--pip-bright);
+    text-shadow: var(--glow-text);
+    letter-spacing: 3px;
+    font-weight: normal;
+}
+
+.header-version {
+    font-size: 0.9rem;
+    color: var(--pip-dim);
+    letter-spacing: 1px;
+}
+
+.header-center {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.header-status {
+    color: var(--pip-bright);
+    text-shadow: var(--glow-md);
+    animation: status-blink 2s ease-in-out infinite;
+    font-size: 0.7rem;
+}
+
+.header-status-text {
+    font-size: 0.95rem;
+    color: var(--pip-primary);
+    letter-spacing: 2px;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.header-time, .header-date {
+    font-family: var(--font-terminal);
+    font-size: 1rem;
+    color: var(--pip-dim);
+    letter-spacing: 1px;
+}
+
+/* --- Pip-Boy Tab Navigation --- */
+.pip-tabs {
+    display: flex;
+    border-bottom: 2px solid var(--pip-dim);
+    background: var(--pip-darkest);
+    padding: 0 1rem;
+    gap: 0;
+    overflow-x: auto;
+}
+
+.pip-tab {
+    font-family: var(--font-terminal);
+    font-size: 1.1rem;
+    padding: 0.6rem 1.5rem;
+    color: var(--pip-dim);
+    letter-spacing: 2px;
+    cursor: pointer;
+    border: none;
+    background: none;
+    position: relative;
+    transition: color 0.2s, text-shadow 0.2s;
+    white-space: nowrap;
+    text-transform: uppercase;
+}
+
+.pip-tab:hover {
+    color: var(--pip-primary);
+    text-shadow: var(--glow-sm);
+}
+
+.pip-tab.active {
+    color: var(--pip-bright);
+    text-shadow: var(--glow-text);
+}
+
+.pip-tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--pip-bright);
+    box-shadow: var(--glow-sm);
+}
+
+/* --- Logo Section --- */
+.logo-section {
+    text-align: center;
+    padding: 1.5rem 1rem 0.75rem;
+    border-bottom: 1px solid var(--pip-darker);
+}
+
+.logo-main {
+    font-family: var(--font-terminal);
+    font-size: 4rem;
+    color: var(--pip-bright);
+    text-shadow: var(--glow-lg);
+    letter-spacing: 12px;
+    line-height: 1;
+    font-weight: normal;
+}
+
+.logo-subtitle {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--pip-dim);
+    letter-spacing: 3px;
+    margin-top: 0.5rem;
+}
+
+.logo-tagline {
+    font-family: var(--font-terminal);
+    font-size: 1.1rem;
+    color: var(--pip-amber);
+    text-shadow: 0 0 4px rgba(255, 184, 51, 0.2);
+    margin-top: 0.25rem;
+    letter-spacing: 1px;
+}
+
+.logo-vault-number {
+    font-family: var(--font-terminal);
+    font-size: 0.85rem;
+    color: var(--pip-dim);
+    letter-spacing: 4px;
+    margin-top: 0.3rem;
+}
+
+/* --- Threat Level Banner --- */
+.threat-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    padding: 0.6rem 1.5rem;
+    background: linear-gradient(90deg, transparent, rgba(255, 51, 51, 0.05), transparent);
+    border-bottom: 1px solid var(--pip-darker);
+}
+
+.threat-label {
+    font-size: 0.85rem;
+    color: var(--pip-amber);
+    letter-spacing: 2px;
+    text-shadow: 0 0 4px var(--pip-amber);
+}
+
+.threat-level {
+    display: flex;
+    gap: 4px;
+}
+
+.threat-bar {
+    width: 20px;
+    height: 10px;
+    background: var(--pip-darker);
+    border: 1px solid var(--pip-dim);
+}
+
+.threat-bar.active {
+    background: var(--pip-amber);
+    box-shadow: 0 0 4px var(--pip-amber);
+    border-color: var(--pip-amber);
+}
+
+.threat-bar.active:nth-child(4) {
+    background: var(--pip-red);
+    box-shadow: 0 0 4px var(--pip-red);
+    border-color: var(--pip-red);
+    animation: status-blink 1.5s ease-in-out infinite;
+}
+
+.threat-status {
+    font-size: 0.8rem;
+    color: var(--pip-amber);
+    letter-spacing: 1px;
+}
+
+/* --- Dashboard Grid --- */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    padding: 0;
+}
+
+/* --- Panel Base Styles (Pip-Boy Card) --- */
+.panel {
+    border: 1px solid var(--pip-darker);
+    background: var(--pip-screen-bg);
+    position: relative;
+    overflow: hidden;
+}
+
+.panel::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    background: linear-gradient(
+        180deg,
+        rgba(26, 255, 128, 0.01) 0%,
+        transparent 50%,
+        rgba(26, 255, 128, 0.005) 100%
+    );
+}
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.8rem;
+    background: linear-gradient(90deg, var(--pip-darkest), transparent);
+    border-bottom: 1px solid var(--pip-darker);
+}
+
+.panel-icon {
+    color: var(--pip-bright);
+    text-shadow: var(--glow-sm);
+    font-size: 0.9rem;
+}
+
+.panel-title {
+    font-family: var(--font-terminal);
+    font-size: 0.95rem;
+    color: var(--pip-primary);
+    letter-spacing: 2px;
+    flex: 1;
+}
+
+.panel-status {
+    font-size: 0.75rem;
+    color: var(--pip-dim);
+    letter-spacing: 1px;
+    padding: 2px 8px;
+    border: 1px solid var(--pip-darker);
+}
+
+.panel-status.online {
+    color: var(--pip-bright);
+    border-color: var(--pip-dim);
+    text-shadow: var(--glow-sm);
+}
+
+.panel-body {
+    padding: 0.6rem 0.8rem;
+}
+
+/* --- Stat Rows --- */
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid rgba(26, 255, 128, 0.05);
+}
+
+.stat-row:last-child {
+    border-bottom: none;
+}
+
+.stat-label {
+    font-family: var(--font-terminal);
+    font-size: 0.85rem;
+    color: var(--pip-dim);
+    letter-spacing: 1px;
+}
+
+.stat-value {
+    font-family: var(--font-terminal);
+    font-size: 1rem;
+    color: var(--pip-primary);
+    text-shadow: var(--glow-sm);
+    text-align: right;
+}
+
+.stat-value.highlight {
+    color: var(--pip-bright);
+    text-shadow: var(--glow-text);
+}
+
+.stat-value.warn {
+    color: var(--pip-amber);
+}
+
+.stat-value.small {
+    font-size: 0.8rem;
+}
+
+/* --- Vault Visual Bar --- */
+.vault-visual {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--pip-darker);
+}
+
+.vault-bar-container,
+.reserve-bar-container {
+    height: 12px;
+    background: var(--pip-darkest);
+    border: 1px solid var(--pip-darker);
+    position: relative;
+    overflow: hidden;
+}
+
+.vault-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--pip-dim), var(--pip-primary));
+    box-shadow: 0 0 8px var(--pip-primary);
+    transition: width 1.5s ease-out;
+}
+
+.vault-bar-label {
+    font-size: 0.7rem;
+    color: var(--pip-dim);
+    letter-spacing: 1px;
+    margin-top: 0.2rem;
+    display: block;
+    text-align: center;
+}
+
+/* --- Network Panel --- */
+.network-panel .panel-body {
+    display: flex;
+    gap: 0;
+}
+
+.network-col {
+    flex: 1;
+    padding: 0 0.5rem;
+}
+
+.network-col:first-child {
+    padding-left: 0;
+}
+
+.network-col:last-child {
+    padding-right: 0;
+}
+
+.network-divider {
+    width: 1px;
+    background: var(--pip-darker);
+    margin: 0 0.5rem;
+}
+
+.network-label {
+    font-family: var(--font-terminal);
+    font-size: 0.8rem;
+    color: var(--pip-dim);
+    text-align: center;
+    letter-spacing: 2px;
+    margin-bottom: 0.3rem;
+}
+
+/* --- Activity Log --- */
+.activity-log {
+    max-height: 220px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    scrollbar-width: thin;
+    scrollbar-color: var(--pip-dim) var(--pip-darkest);
+}
+
+.activity-log::-webkit-scrollbar {
+    width: 4px;
+}
+
+.activity-log::-webkit-scrollbar-track {
+    background: var(--pip-darkest);
+}
+
+.activity-log::-webkit-scrollbar-thumb {
+    background: var(--pip-dim);
+}
+
+.log-entry {
+    padding: 0.25rem 0;
+    border-bottom: 1px solid rgba(26, 255, 128, 0.03);
+    line-height: 1.5;
+    font-family: var(--font-mono);
+}
+
+.log-entry.system {
+    color: var(--pip-dim);
+}
+
+.log-entry.info {
+    color: var(--pip-primary);
+}
+
+.log-entry.warn {
+    color: var(--pip-amber);
+}
+
+.log-entry.highlight {
+    color: var(--pip-bright);
+    text-shadow: var(--glow-sm);
+}
+
+.log-entry.error {
+    color: var(--pip-red);
+}
+
+/* --- Reserves Panel --- */
+.reserves-visual {
+    margin-bottom: 0.5rem;
+}
+
+.reserve-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+}
+
+.reserve-label {
+    font-size: 0.75rem;
+    color: var(--pip-dim);
+    letter-spacing: 1px;
+    min-width: 120px;
+}
+
+.reserve-bar-container {
+    flex: 1;
+    height: 10px;
+}
+
+.reserve-bar {
+    height: 100%;
+    transition: width 1.5s ease-out;
+}
+
+.reserve-bar.soq {
+    background: linear-gradient(90deg, var(--pip-dim), var(--pip-bright));
+    box-shadow: 0 0 6px var(--pip-primary);
+}
+
+.reserve-bar.psoq {
+    background: linear-gradient(90deg, var(--pip-amber-dim), var(--pip-amber));
+    box-shadow: 0 0 6px var(--pip-amber);
+}
+
+.reserve-value {
+    font-size: 0.8rem;
+    color: var(--pip-primary);
+    min-width: 70px;
+    text-align: right;
+}
+
+.reserve-attestation {
+    border-top: 1px solid var(--pip-darker);
+    padding-top: 0.4rem;
+}
+
+/* --- Security Grid --- */
+.security-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4rem;
+}
+
+.security-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.4rem;
+    border: 1px solid var(--pip-darker);
+    background: var(--pip-darkest);
+}
+
+.security-item.active .security-icon {
+    color: var(--pip-bright);
+    text-shadow: var(--glow-sm);
+}
+
+.security-item.pending .security-icon {
+    color: var(--pip-amber);
+    text-shadow: 0 0 4px var(--pip-amber);
+}
+
+.security-icon {
+    font-size: 0.85rem;
+    min-width: 1rem;
+    text-align: center;
+}
+
+.security-text {
+    font-size: 0.78rem;
+    color: var(--pip-primary);
+    letter-spacing: 0.5px;
+    flex: 1;
+}
+
+.security-detail {
+    font-size: 0.7rem;
+    color: var(--pip-dim);
+    letter-spacing: 0.5px;
+}
+
+/* --- Flow Diagram (HTML/CSS) --- */
+.flow-visual {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    padding: 0.5rem 0;
+}
+
+.flow-chain {
+    flex: 1;
+    border: 1px solid var(--pip-darker);
+    padding: 0.8rem;
+    background: rgba(4, 13, 7, 0.8);
+}
+
+.flow-solana {
+    border-color: var(--pip-amber-dim);
+}
+
+.flow-soqucoin {
+    border-color: var(--pip-dim);
+}
+
+.flow-chain-title {
+    font-family: var(--font-terminal);
+    font-size: 1rem;
+    letter-spacing: 1px;
+    text-align: center;
+    margin-bottom: 0.15rem;
+}
+
+.flow-solana .flow-chain-title {
+    color: var(--pip-amber);
+    text-shadow: 0 0 6px var(--pip-amber);
+}
+
+.flow-soqucoin .flow-chain-title {
+    color: var(--pip-bright);
+    text-shadow: var(--glow-text);
+}
+
+.flow-chain-subtitle {
+    font-size: 0.75rem;
+    text-align: center;
+    letter-spacing: 2px;
+    margin-bottom: 0.6rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--pip-darker);
+}
+
+.flow-solana .flow-chain-subtitle {
+    color: var(--pip-amber-dim);
+}
+
+.flow-soqucoin .flow-chain-subtitle {
+    color: var(--pip-dim);
+}
+
+.flow-steps {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1rem;
+}
+
+.flow-step {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--pip-darker);
+    background: var(--pip-darkest);
+}
+
+.flow-step-icon {
+    font-size: 0.9rem;
+    min-width: 1.2rem;
+    text-align: center;
+}
+
+.flow-solana .flow-step-icon {
+    color: var(--pip-amber);
+    text-shadow: 0 0 4px var(--pip-amber);
+}
+
+.flow-soqucoin .flow-step-icon {
+    color: var(--pip-bright);
+    text-shadow: var(--glow-sm);
+}
+
+.flow-step-text {
+    font-family: var(--font-terminal);
+    font-size: 0.9rem;
+    color: var(--pip-primary);
+    line-height: 1.3;
+}
+
+.flow-detail {
+    font-size: 0.75rem;
+    color: var(--pip-dim);
+}
+
+.flow-arrow {
+    font-size: 1rem;
+    color: var(--pip-dim);
+    text-align: center;
+    line-height: 1;
+    padding: 0.1rem 0;
+}
+
+/* Bridge connector */
+.flow-bridge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.3rem;
+    min-width: 120px;
+}
+
+.flow-bridge-line {
+    width: 2px;
+    flex: 1;
+    min-height: 20px;
+    background: linear-gradient(180deg, var(--pip-darker), var(--pip-dim), var(--pip-darker));
+}
+
+.flow-bridge-box {
+    border: 2px solid var(--pip-primary);
+    padding: 0.5rem 0.8rem;
+    text-align: center;
+    background: var(--pip-darkest);
+    box-shadow: 0 0 10px rgba(26, 255, 128, 0.1);
+}
+
+.flow-bridge-title {
+    font-family: var(--font-terminal);
+    font-size: 1.1rem;
+    color: var(--pip-bright);
+    text-shadow: var(--glow-text);
+    letter-spacing: 2px;
+}
+
+.flow-bridge-sub {
+    font-size: 0.8rem;
+    color: var(--pip-primary);
+    letter-spacing: 1px;
+}
+
+.flow-bridge-detail {
+    font-size: 0.7rem;
+    color: var(--pip-dim);
+    margin-top: 0.2rem;
+}
+
+.flow-bridge-arrows {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0.3rem 0;
+    font-family: var(--font-terminal);
+    font-size: 0.75rem;
+    color: var(--pip-dim);
+}
+
+/* --- Footer --- */
+.terminal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 1.5rem;
+    border-top: 2px solid var(--pip-dim);
+    background: linear-gradient(0deg, var(--pip-darkest) 0%, var(--pip-bg) 100%);
+    font-size: 0.7rem;
+    color: var(--pip-dim);
+    letter-spacing: 1px;
+}
+
+.footer-center {
+    color: var(--pip-amber);
+    text-shadow: 0 0 4px rgba(255, 184, 51, 0.3);
+    letter-spacing: 2px;
+}
+
+/* --- Full-Width Panels --- */
+.flow-panel,
+.activity-panel {
+    grid-column: 1 / -1;
+}
+
+/* --- Responsive --- */
+@media (max-width: 900px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .terminal-header {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .header-center {
+        order: 3;
+        width: 100%;
+        justify-content: center;
+    }
+
+    .terminal-footer {
+        flex-direction: column;
+        gap: 0.3rem;
+        text-align: center;
+    }
+
+    .logo-main {
+        font-size: 2.8rem;
+        letter-spacing: 8px;
+    }
+
+    .flow-visual {
+        flex-direction: column;
+    }
+
+    .flow-bridge {
+        flex-direction: row;
+        min-width: unset;
+        padding: 0.3rem 0;
+    }
+
+    .flow-bridge-line {
+        width: auto;
+        height: 2px;
+        min-height: unset;
+        min-width: 20px;
+        flex: 1;
+    }
+
+    .flow-bridge-arrows {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .network-panel .panel-body {
+        flex-direction: column;
+    }
+
+    .network-divider {
+        width: 100%;
+        height: 1px;
+        margin: 0.4rem 0;
+    }
+
+    .security-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .threat-banner {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+}
+
+@media (max-width: 500px) {
+    .logo-main {
+        font-size: 2rem;
+        letter-spacing: 5px;
+    }
+
+    .header-title {
+        font-size: 1rem;
+        letter-spacing: 1px;
+    }
+
+    body {
+        font-size: 14px;
+    }
+
+    .pip-tab {
+        padding: 0.5rem 0.8rem;
+        font-size: 0.9rem;
+    }
+}
+
+/* --- Selection --- */
+::selection {
+    background: var(--pip-dim);
+    color: var(--pip-bg);
+}
+
+/* --- Animated scan line --- */
+.main-terminal::after {
+    content: '';
+    position: fixed;
+    top: -5%;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(
+        to bottom,
+        transparent,
+        rgba(26, 255, 128, 0.06),
+        transparent
+    );
+    animation: scan-down 8s linear infinite;
+    pointer-events: none;
+    z-index: 99;
+}
