@@ -461,19 +461,19 @@ body {
 .panel-icon {
     color: var(--pip-bright);
     text-shadow: var(--glow-sm);
-    font-size: 0.9rem;
+    font-size: 1.1rem;
 }
 
 .panel-title {
     font-family: var(--font-terminal);
-    font-size: 0.95rem;
+    font-size: 1.15rem;
     color: var(--pip-primary);
     letter-spacing: 2px;
     flex: 1;
 }
 
 .panel-status {
-    font-size: 0.75rem;
+    font-size: 0.9rem;
     color: var(--pip-dim);
     letter-spacing: 1px;
     padding: 2px 8px;
@@ -487,7 +487,7 @@ body {
 }
 
 .panel-body {
-    padding: 0.6rem 0.8rem;
+    padding: 0.8rem 1rem;
 }
 
 /* --- Stat Rows --- */
@@ -505,14 +505,14 @@ body {
 
 .stat-label {
     font-family: var(--font-terminal);
-    font-size: 0.85rem;
+    font-size: 1.05rem;
     color: var(--pip-dim);
     letter-spacing: 1px;
 }
 
 .stat-value {
     font-family: var(--font-terminal);
-    font-size: 1rem;
+    font-size: 1.2rem;
     color: var(--pip-primary);
     text-shadow: var(--glow-sm);
     text-align: right;
@@ -528,7 +528,7 @@ body {
 }
 
 .stat-value.small {
-    font-size: 0.8rem;
+    font-size: 1rem;
 }
 
 /* --- Vault Visual Bar --- */
@@ -555,7 +555,7 @@ body {
 }
 
 .vault-bar-label {
-    font-size: 0.7rem;
+    font-size: 0.9rem;
     color: var(--pip-dim);
     letter-spacing: 1px;
     margin-top: 0.2rem;
@@ -590,7 +590,7 @@ body {
 
 .network-label {
     font-family: var(--font-terminal);
-    font-size: 0.8rem;
+    font-size: 1.05rem;
     color: var(--pip-dim);
     text-align: center;
     letter-spacing: 2px;
@@ -599,10 +599,10 @@ body {
 
 /* --- Activity Log --- */
 .activity-log {
-    max-height: 220px;
+    max-height: 260px;
     overflow-y: auto;
     font-family: var(--font-mono);
-    font-size: 0.85rem;
+    font-size: 1rem;
     line-height: 1.5;
     scrollbar-width: thin;
     scrollbar-color: var(--pip-dim) var(--pip-darkest);
@@ -661,7 +661,7 @@ body {
 }
 
 .reserve-label {
-    font-size: 0.75rem;
+    font-size: 1rem;
     color: var(--pip-dim);
     letter-spacing: 1px;
     min-width: 120px;
@@ -688,7 +688,7 @@ body {
 }
 
 .reserve-value {
-    font-size: 0.8rem;
+    font-size: 1.05rem;
     color: var(--pip-primary);
     min-width: 70px;
     text-align: right;
@@ -732,14 +732,14 @@ body {
 }
 
 .security-text {
-    font-size: 0.78rem;
+    font-size: 1rem;
     color: var(--pip-primary);
     letter-spacing: 0.5px;
     flex: 1;
 }
 
 .security-detail {
-    font-size: 0.7rem;
+    font-size: 0.9rem;
     color: var(--pip-dim);
     letter-spacing: 0.5px;
 }
@@ -837,13 +837,13 @@ body {
 
 .flow-step-text {
     font-family: var(--font-terminal);
-    font-size: 0.9rem;
+    font-size: 1.1rem;
     color: var(--pip-primary);
     line-height: 1.3;
 }
 
 .flow-detail {
-    font-size: 0.75rem;
+    font-size: 0.95rem;
     color: var(--pip-dim);
 }
 
@@ -889,13 +889,13 @@ body {
 }
 
 .flow-bridge-sub {
-    font-size: 0.8rem;
+    font-size: 1rem;
     color: var(--pip-primary);
     letter-spacing: 1px;
 }
 
 .flow-bridge-detail {
-    font-size: 0.7rem;
+    font-size: 0.9rem;
     color: var(--pip-dim);
     margin-top: 0.2rem;
 }
@@ -918,7 +918,7 @@ body {
     padding: 0.5rem 1.5rem;
     border-top: 2px solid var(--pip-dim);
     background: linear-gradient(0deg, var(--pip-darkest) 0%, var(--pip-bg) 100%);
-    font-size: 0.7rem;
+    font-size: 0.9rem;
     color: var(--pip-dim);
     letter-spacing: 1px;
 }
