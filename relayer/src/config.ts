@@ -13,6 +13,7 @@ export interface RelayerConfig {
   solanaRpc: string;
   solanaProgramId: string;
   psoqMint: string;
+  solanaKeypairPath: string;
   
   // Soqucoin
   soqucoinRpc: string;
@@ -44,16 +45,17 @@ export function loadConfig(): RelayerConfig {
     network: (process.env.NETWORK as any) || 'devnet',
     
     solanaRpc: process.env.SOLANA_RPC || 'https://api.devnet.solana.com',
-    solanaProgramId: process.env.SOLANA_PROGRAM_ID || 'SoQTECBridgeProgram11111111111111111111111',
-    psoqMint: process.env.PSOQ_MINT || '',
+    solanaProgramId: process.env.SOLANA_PROGRAM_ID || '9pCJxjVF8VTizZ9RZZLTu997y2DafWgUGqYbrNiqPw36',
+    psoqMint: process.env.PSOQ_MINT || '7TCU5SnLR7ARRAd8aUdoAFgw9zvCvzwdphm7TjUT6s46',
+    solanaKeypairPath: process.env.SOLANA_KEYPAIR || '~/.config/solana/soqtec-deployer.json',
     
-    soqucoinRpc: process.env.SOQUCOIN_RPC || 'http://localhost:44555',
+    soqucoinRpc: process.env.SOQUCOIN_RPC || 'http://64.23.197.144:44555',
     soqucoinRpcUser: process.env.SOQUCOIN_RPC_USER || '',
     soqucoinRpcPass: process.env.SOQUCOIN_RPC_PASS || '',
     vaultAddress: process.env.VAULT_ADDRESS || '',
     
-    threshold: parseInt(process.env.THRESHOLD || '3'),
-    validatorCount: parseInt(process.env.VALIDATOR_COUNT || '5'),
+    threshold: parseInt(process.env.THRESHOLD || '2'),
+    validatorCount: parseInt(process.env.VALIDATOR_COUNT || '3'),
     validatorKeyPath: process.env.VALIDATOR_KEY_PATH || './keys',
     
     apiPort: parseInt(process.env.API_PORT || '3001'),
@@ -61,7 +63,7 @@ export function loadConfig(): RelayerConfig {
       .split(','),
     
     dailyLimitSoq: parseInt(process.env.DAILY_LIMIT || '1000000'),
-    minTransferSoq: parseInt(process.env.MIN_TRANSFER || '100'),
+    minTransferSoq: parseInt(process.env.MIN_TRANSFER || '1'),
     maxTransferSoq: parseInt(process.env.MAX_TRANSFER || '100000'),
     
     solanaPollInterval: parseInt(process.env.SOLANA_POLL_MS || '2000'),

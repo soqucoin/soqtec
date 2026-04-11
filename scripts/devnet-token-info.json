@@ -1,0 +1,17 @@
+{
+  "network": "devnet",
+  "mint": "7TCU5SnLR7ARRAd8aUdoAFgw9zvCvzwdphm7TjUT6s46",
+  "tokenAccount": "HoV3hSy67kBkMW1xQKb1hp119bMd1ReJHZ2sFikxtimY",
+  "mintAuthority": "2pz6PK8Yj6EewxZSm5ASoUngqTdmtwEr2GsbSyZnpx1Y",
+  "decimals": 9,
+  "supply": "1000000000",
+  "symbol": "tpSOQ",
+  "name": "pSOQ (Devnet Test)",
+  "deployedAt": "2026-04-10T20:32:16Z",
+  "solCost": "0.00352088",
+  "transactions": {
+    "createMint": "4c1ACyqy7twTY9W1uiPCimQqTdSMo5VV2BpAVhnh26JQcR7PJ1PWtmCBbWqCgGiTNPmvbdCt64xm1ixqkQmD15z9",
+    "createAccount": "3A1JKDtXNZ6zDLXX4VbfwGBZqfAJtSy2oft1kx48rX8XRspz3RTy2dpBeA4g54Dzm5kw4g2Bo5bSd6fZ1xHhNUjq",
+    "mintSupply": "36QDfSLZR1X8fkJG29SwX8cYQRthPPcwQgBTnSJzwfBw5NooSQqoJuwPTxFDSAUz4JAYVZCNDzxaBSvYUm6GyeaF"
+  }
+}

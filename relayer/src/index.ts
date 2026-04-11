@@ -53,7 +53,7 @@ async function main(): Promise<void> {
     logger.info(`\n${signal} received — shutting down gracefully...`);
     await solanaWatcher.stop();
     await soqucoinWatcher.stop();
-    api.close();
+    (api as any).close();
     process.exit(0);
   };
 

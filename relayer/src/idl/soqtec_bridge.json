@@ -1,0 +1,890 @@
+{
+  "address": "9pCJxjVF8VTizZ9RZZLTu997y2DafWgUGqYbrNiqPw36",
+  "metadata": {
+    "name": "soqtec_bridge",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "SOQ-TEC: Quantum-Tolerant Ecosystem Custody Bridge for Solana",
+    "repository": "https://github.com/soqucoin/soqtec"
+  },
+  "docs": [
+    "SOQ-TEC Bridge Program",
+    "Soqucoin Operations for Quantum-Tolerant Ecosystem Custody",
+    "",
+    "Manages bidirectional pSOQ ↔ SOQ bridge operations:",
+    "- burn_for_redemption: Burns pSOQ on Solana, emits event for relayer",
+    "- mint_from_deposit:   Mints pSOQ after Soqucoin vault lock verification",
+    "- update_vault_balance: Updates on-chain Proof of Reserves",
+    "- pause/resume:        Circuit breaker for emergency response"
+  ],
+  "instructions": [
+    {
+      "name": "burn_for_redemption",
+      "docs": [
+        "Burn pSOQ to redeem native SOQ on Soqucoin L1",
+        "",
+        "Flow: User burns pSOQ → Event emitted → Relayer picks up →",
+        "Soqucoin vault releases SOQ to user's Dilithium address"
+      ],
+      "discriminator": [
+        37,
+        68,
+        205,
+        148,
+        244,
+        182,
+        42,
+        224
+      ],
+      "accounts": [
+        {
+          "name": "bridge_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  114,
+                  105,
+                  100,
+                  103,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "psoq_mint",
+          "writable": true
+        },
+        {
+          "name": "user_token_account",
+          "writable": true
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "soq_address",
+          "type": {
+            "array": [
+              "u8",
+              34
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Initialize the bridge with validator set and parameters"
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "bridge_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  114,
+                  105,
+                  100,
+                  103,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "psoq_mint"
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "threshold",
+          "type": "u8"
+        },
+        {
+          "name": "validators",
+          "type": {
+            "vec": "pubkey"
+          }
+        },
+        {
+          "name": "daily_limit",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "mint_from_deposit",
+      "docs": [
+        "Mint pSOQ after relayer verifies Soqucoin vault lock",
+        "",
+        "Flow: User locks SOQ in vault → Relayer detects → 3-of-5 sign →",
+        "This instruction mints pSOQ to user's Solana wallet"
+      ],
+      "discriminator": [
+        188,
+        121,
+        190,
+        62,
+        103,
+        128,
+        64,
+        75
+      ],
+      "accounts": [
+        {
+          "name": "bridge_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  114,
+                  105,
+                  100,
+                  103,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "psoq_mint",
+          "writable": true
+        },
+        {
+          "name": "processed_txid",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  99,
+                  101,
+                  115,
+                  115,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "soq_txid"
+              }
+            ]
+          }
+        },
+        {
+          "name": "recipient_token_account",
+          "writable": true
+        },
+        {
+          "name": "recipient"
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "soq_txid",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "signatures",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "ValidatorSignature"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "pause_bridge",
+      "docs": [
+        "Emergency pause — halts all bridge operations"
+      ],
+      "discriminator": [
+        162,
+        103,
+        59,
+        230,
+        104,
+        233,
+        25,
+        246
+      ],
+      "accounts": [
+        {
+          "name": "bridge_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  114,
+                  105,
+                  100,
+                  103,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "resume_bridge",
+      "docs": [
+        "Resume bridge operations after emergency"
+      ],
+      "discriminator": [
+        47,
+        83,
+        155,
+        38,
+        154,
+        147,
+        234,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "bridge_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  114,
+                  105,
+                  100,
+                  103,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_vault_balance",
+      "docs": [
+        "Update on-chain Proof of Reserves (vault balance attestation)"
+      ],
+      "discriminator": [
+        95,
+        235,
+        185,
+        190,
+        181,
+        254,
+        76,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "bridge_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  114,
+                  105,
+                  100,
+                  103,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "balance",
+          "type": "u64"
+        },
+        {
+          "name": "block_height",
+          "type": "u64"
+        },
+        {
+          "name": "signatures",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "ValidatorSignature"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "BridgeState",
+      "discriminator": [
+        6,
+        190,
+        226,
+        198,
+        76,
+        100,
+        157,
+        198
+      ]
+    },
+    {
+      "name": "ProcessedTxid",
+      "discriminator": [
+        234,
+        99,
+        37,
+        56,
+        241,
+        170,
+        55,
+        250
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "BridgeInitialized",
+      "discriminator": [
+        250,
+        214,
+        32,
+        18,
+        141,
+        171,
+        114,
+        43
+      ]
+    },
+    {
+      "name": "BridgePaused",
+      "discriminator": [
+        41,
+        254,
+        108,
+        64,
+        12,
+        9,
+        240,
+        203
+      ]
+    },
+    {
+      "name": "BridgeResumed",
+      "discriminator": [
+        143,
+        38,
+        195,
+        104,
+        237,
+        161,
+        7,
+        85
+      ]
+    },
+    {
+      "name": "BurnForRedemptionEvent",
+      "discriminator": [
+        7,
+        185,
+        55,
+        247,
+        137,
+        72,
+        147,
+        194
+      ]
+    },
+    {
+      "name": "MintFromDepositEvent",
+      "discriminator": [
+        133,
+        121,
+        21,
+        169,
+        182,
+        18,
+        107,
+        166
+      ]
+    },
+    {
+      "name": "VaultBalanceUpdated",
+      "discriminator": [
+        213,
+        152,
+        41,
+        223,
+        136,
+        90,
+        17,
+        26
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "BridgePaused",
+      "msg": "Bridge is paused — emergency circuit breaker active"
+    },
+    {
+      "code": 6001,
+      "name": "BelowMinimum",
+      "msg": "Amount below minimum transfer (100 SOQ)"
+    },
+    {
+      "code": 6002,
+      "name": "DailyLimitExceeded",
+      "msg": "Daily transfer limit exceeded — circuit breaker"
+    },
+    {
+      "code": 6003,
+      "name": "InsufficientSignatures",
+      "msg": "Insufficient validator signatures for threshold"
+    },
+    {
+      "code": 6004,
+      "name": "AlreadyProcessed",
+      "msg": "This Soqucoin transaction has already been processed"
+    },
+    {
+      "code": 6005,
+      "name": "MathOverflow",
+      "msg": "Math overflow in amount calculation"
+    },
+    {
+      "code": 6006,
+      "name": "Unauthorized",
+      "msg": "Unauthorized — not bridge authority"
+    },
+    {
+      "code": 6007,
+      "name": "ThresholdTooLow",
+      "msg": "Threshold must be at least 2"
+    },
+    {
+      "code": 6008,
+      "name": "NotEnoughValidators",
+      "msg": "Not enough validators for threshold"
+    },
+    {
+      "code": 6009,
+      "name": "TooManyValidators",
+      "msg": "Maximum 10 validators supported"
+    }
+  ],
+  "types": [
+    {
+      "name": "BridgeInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "threshold",
+            "type": "u8"
+          },
+          {
+            "name": "validator_count",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BridgePaused",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BridgeResumed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BridgeState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Admin authority (can pause/resume)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "docs": [
+              "pSOQ SPL token mint address"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "threshold",
+            "docs": [
+              "Signature threshold (e.g., 3 of 5)"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "validators",
+            "docs": [
+              "Validator public keys"
+            ],
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "total_burned",
+            "docs": [
+              "Cumulative pSOQ burned (Solana → Soqucoin)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_minted",
+            "docs": [
+              "Cumulative pSOQ minted (Soqucoin → Solana)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "vault_balance",
+            "docs": [
+              "Attested SOQ vault balance on Soqucoin L1"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "daily_limit",
+            "docs": [
+              "Daily transfer limit (circuit breaker)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "daily_volume",
+            "docs": [
+              "Current daily volume"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "last_epoch",
+            "docs": [
+              "Last reset epoch"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "paused",
+            "docs": [
+              "Emergency pause flag"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "nonce",
+            "docs": [
+              "Monotonic nonce for replay protection"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BurnForRedemptionEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "net_amount",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "soq_address",
+            "type": {
+              "array": [
+                "u8",
+                34
+              ]
+            }
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MintFromDepositEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "net_amount",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "soq_txid",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProcessedTxid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "processed",
+            "type": "bool"
+          },
+          {
+            "name": "soq_txid",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ValidatorSignature",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "validator",
+            "type": "pubkey"
+          },
+          {
+            "name": "signature",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultBalanceUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "balance",
+            "type": "u64"
+          },
+          {
+            "name": "backing_ratio",
+            "type": "u64"
+          },
+          {
+            "name": "block_height",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    }
+  ]
+}

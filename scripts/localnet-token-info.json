@@ -1,0 +1,14 @@
+{
+  "network": "localhost (solana-test-validator)",
+  "rpc": "http://localhost:8899",
+  "mint": "CYR4yYjwzGMLhgFLMLkPgFxw3iryXWcT9KNBr4c7mxHu",
+  "tokenAccount": "3xtZx5KwejqTzpajuidDEZULnsRyPa4mf3A6X666RGjn",
+  "mintAuthority": "2pz6PK8Yj6EewxZSm5ASoUngqTdmtwEr2GsbSyZnpx1Y",
+  "deployerKeypair": "/Users/caseymacmini/.config/solana/soqtec-deployer.json",
+  "decimals": 9,
+  "supply": "1000000000",
+  "symbol": "tpSOQ",
+  "name": "pSOQ (Test)",
+  "deployedAt": "2026-04-10T16:17:43Z",
+  "notes": "Deployed on local test validator. Devnet faucets are all blocked by anti-bot (IP rate limit, GitHub auth, mainnet balance check). Use local validator for all development. Re-deploy to devnet when faucet access is restored or Casey sends 0.01 SOL to mainnet to unlock QuickNode faucet."
+}

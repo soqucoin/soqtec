@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Burn, MintTo, Token, TokenAccount, Mint};
 
-declare_id!("SoQTECBridgeProgram11111111111111111111111");
+declare_id!("9pCJxjVF8VTizZ9RZZLTu997y2DafWgUGqYbrNiqPw36");
 
 /// SOQ-TEC Bridge Program
 /// Soqucoin Operations for Quantum-Tolerant Ecosystem Custody
@@ -249,8 +249,8 @@ pub mod soqtec_bridge {
 // Constants
 // ============================================================
 
-/// Minimum transfer amount: 100 SOQ (in smallest denomination)
-const MIN_TRANSFER: u64 = 100_000_000_00; // 100 SOQ with 8 decimals
+/// Minimum transfer amount: 1 SOQ (in smallest denomination, 9 decimals)
+const MIN_TRANSFER: u64 = 1_000_000_000; // 1 SOQ with 9 decimals
 
 // ============================================================
 // Accounts

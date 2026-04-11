@@ -24,7 +24,7 @@ export interface VaultDeposit {
 export class SoqucoinWatcher {
   private config: RelayerConfig;
   private queue: TransferQueue;
-  private polling: NodeJS.Timer | null = null;
+  private polling: ReturnType<typeof setInterval> | null = null;
   private lastBlockHeight: number = 0;
   private deposits: VaultDeposit[] = [];
   private vaultBalance: number = 0;
@@ -155,7 +155,7 @@ export class SoqucoinWatcher {
       }),
     });
 
-    const data = await response.json();
+    const data = await response.json() as any;
     if (data.error) {
       throw new Error(`RPC error: ${data.error.message}`);
     }

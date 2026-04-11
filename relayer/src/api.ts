@@ -21,8 +21,10 @@ export async function startApiServer(
 ): Promise<express.Application> {
   const app = express();
 
-  // Middleware
-  app.use(cors({ origin: config.apiCorsOrigins }));
+  // Middleware — allow all origins in dev (file:// sends null origin)
+  app.use(cors({
+    origin: config.network === 'devnet' ? true : config.apiCorsOrigins,
+  }));
   app.use(express.json());
 
   // Request logging
