@@ -21,7 +21,7 @@ const BRIDGE_SEED = Buffer.from('bridge');
 const SOQ_DESTINATION = 'sq1pz3trxfdq7vnrduqt25uc6nzdn8m05d03pe0xnf3w0w2mn4u3xlesxy0hsc';
 
 // Relayer DUA status endpoint
-const RELAYER_URL = 'https://soqtec-relay.soqu.org';
+const RELAYER_URL = 'http://soqtec-relay.soqu.org:3001';
 
 async function main() {
   const burnAmountUi = parseInt(process.argv[2]) || 10;
