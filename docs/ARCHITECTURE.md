@@ -70,6 +70,8 @@ SOQ-TEC is a bidirectional cross-chain bridge connecting Solana (classical Ed255
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+> *Diagram current as of v1.0.0. Updates to reflect PAUL optimistic release architecture and confirmed E2E flows are in progress.*
+
 ---
 
 ## Component Details
@@ -202,6 +204,8 @@ Static HTML/CSS/JS dashboard with Pip-Boy CRT aesthetic.
 ```
 
 The only non-PQ component is Solana's own transaction signing (Ed25519) — which is Solana's constraint, not SOQ-TEC's. The bridge's trust chain is fully quantum-secure.
+
+> *Diagram current as of v1.0.0. Updated E2E attestation flow diagram is in progress.*
 
 ---
 

@@ -72,6 +72,8 @@ User                    Solana Program           Relayer Network          Soquco
   │   "1000 SOQ available at <dilithium_addr>"                                │
 ```
 
+> *Flow diagram current as of v1.0.0. Updated to reflect PAUL optimistic release (Solana→SOQ) is in progress.*
+
 ### Steps
 
 1. **User** calls `burn_for_redemption(amount, soq_address)` on the Solana bridge program
@@ -123,6 +125,8 @@ User                    Soqucoin L1              Relayer Network          Solana
   │◄─────────────────────────────────notification─────────────────────────────│
   │   "1000 pSOQ minted to <solana_pubkey>"                                   │
 ```
+
+> *Flow diagram current as of v1.0.0. Updated diagram reflecting confirmed E2E deposit flow is in progress.*
 
 ### Steps
 
