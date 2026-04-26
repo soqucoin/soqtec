@@ -6,7 +6,13 @@
 // ============================================================
 // CONFIGURATION
 // ============================================================
+// Relayer API — HTTP only (no TLS on relayer yet).
+// When the terminal is served over HTTPS (Cloudflare Pages),
+// mixed content policy blocks these requests. In that case,
+// the terminal falls back to ambient system messages + block height
+// data from HTTPS sources (explorer + Solana RPC).
 const RELAYER_API = 'http://soqtec-relay.soqu.org:3001';
+const IS_SECURE_CONTEXT = (typeof window !== 'undefined' && window.location.protocol === 'https:');
 const POLL_INTERVAL = 15000;   // 15s data refresh
 const FEED_INTERVAL = 5000;    // 5s activity feed rotation
 
@@ -285,6 +291,12 @@ class Dashboard {
 
     // --- Live Data: Relayer + PAUL + PoR ---
     async fetchRelayerData() {
+        // Skip relayer calls in HTTPS context (mixed content blocked)
+        if (IS_SECURE_CONTEXT) {
+            this.updateRelayerStatus(false, null);
+            return;
+        }
+
         try {
             // Fetch all three endpoints
             const [statusRes, duaRes, reservesRes] = await Promise.allSettled([
