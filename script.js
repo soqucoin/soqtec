@@ -1,20 +1,7 @@
 /* =========================================================
-   SOQ-TEC TERMINAL v1.1 — Pip-Boy Interface Logic
+   SOQ-TEC TERMINAL v1.0 — Pip-Boy Interface Logic
    Boot sequence, live data, animations, terminal behavior
    ========================================================= */
-
-// ============================================================
-// CONFIGURATION
-// ============================================================
-// Relayer API — HTTP only (no TLS on relayer yet).
-// When the terminal is served over HTTPS (Cloudflare Pages),
-// mixed content policy blocks these requests. In that case,
-// the terminal falls back to ambient system messages + block height
-// data from HTTPS sources (explorer + Solana RPC).
-const RELAYER_API = 'http://soqtec-relay.soqu.org:3001';
-const IS_SECURE_CONTEXT = (typeof window !== 'undefined' && window.location.protocol === 'https:');
-const POLL_INTERVAL = 15000;   // 15s data refresh
-const FEED_INTERVAL = 5000;    // 5s activity feed rotation
 
 // ============================================================
 // BOOT SEQUENCE
@@ -22,7 +9,7 @@ const FEED_INTERVAL = 5000;    // 5s activity feed rotation
 const BOOT_LINES = [
     { text: '+==============================================+', delay: 30 },
     { text: '|                                              |', delay: 20 },
-    { text: '|   SOQ-TEC TERMINAL v1.1.0                    |', delay: 40 },
+    { text: '|   SOQ-TEC TERMINAL v1.0.0                    |', delay: 40 },
     { text: '|   Soqucoin Operations for Quantum-Tolerant   |', delay: 40 },
     { text: '|   Ecosystem Custody                          |', delay: 40 },
     { text: '|                                              |', delay: 20 },
@@ -38,10 +25,10 @@ const BOOT_LINES = [
     { text: '', delay: 100 },
     { text: '> Initializing SOQ-TEC Protocol...', delay: 80 },
     { text: '> Loading ML-DSA-44 Dilithium module.....OK', delay: 100 },
-    { text: '> Loading PAUL Lane Manager...............OK', delay: 90 },
-    { text: '> Loading DUA/CEA Pipeline................OK', delay: 110 },
+    { text: '> Loading Winternitz OTS verifier.........OK', delay: 90 },
+    { text: '> Loading Bridge Attestation Engine.......OK', delay: 110 },
     { text: '', delay: 100 },
-    { text: '> Connecting to Soqucoin L1 (Stagenet)...', delay: 120 },
+    { text: '> Connecting to Soqucoin L1 (Testnet3)...', delay: 120 },
     { text: '  RPC: https://rpc.soqu.org', delay: 60 },
     { text: '  STATUS:  CONNECTED', delay: 80 },
     { text: '  BLOCK HEIGHT: fetching...', delay: 40, id: 'boot-soq-block' },
@@ -84,11 +71,13 @@ class BootSequence {
     }
 
     async start() {
+        // Check for skip preference
         if (sessionStorage.getItem('soqtec-boot-done')) {
             this.skip();
             return;
         }
 
+        // Allow click to skip
         this.bootScreen.addEventListener('click', () => this.skip());
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' || e.key === ' ' || e.key === 'Enter') {
@@ -114,6 +103,7 @@ class BootSequence {
         for (let i = 0; i < text.length; i++) {
             if (this.isComplete) return;
             this.bootText.textContent += text[i];
+            // Auto-scroll
             this.bootText.parentElement.scrollTop = this.bootText.parentElement.scrollHeight;
             await this.sleep(baseDelay);
         }
@@ -133,6 +123,7 @@ class BootSequence {
         setTimeout(() => {
             this.bootScreen.style.display = 'none';
             this.mainTerminal.classList.remove('hidden');
+            // Start the dashboard
             dashboard.init();
         }, 500);
     }
@@ -147,23 +138,21 @@ class BootSequence {
 // ============================================================
 class Dashboard {
     constructor() {
+        this.animationFrame = null;
         this.updateInterval = null;
-        this.lastReleaseCount = 0;
-        this.relayerOnline = false;
-        this.feedMessages = [];
+        this.logIndex = 0;
     }
 
     init() {
         this.startClock();
         this.animateEntrance();
-        this.fetchLiveData();
-        this.fetchRelayerData();
-        this.initTabs();
-        this.startPeriodicUpdates();
+        this.startDataUpdates();
         this.startActivityFeed();
+        this.fetchLiveData();
+        this.initTabs();
     }
 
-    // --- Pip-Boy Tab Navigation ---
+    // --- Pip-Boy Tab Navigation (visual-only for now) ---
     initTabs() {
         const tabs = document.querySelectorAll('.pip-tab');
         tabs.forEach(tab => {
@@ -206,6 +195,46 @@ class Dashboard {
                 panel.style.transform = 'translateY(0)';
             }, 100 + (i * 120));
         });
+
+        // Animate vault bar after panels
+        setTimeout(() => {
+            this.animateVaultBar();
+        }, 1000);
+    }
+
+    // --- Vault Bar Animation ---
+    animateVaultBar() {
+        const vaultBar = document.getElementById('vault-bar');
+        if (vaultBar) {
+            // Pre-launch: show low capacity as a teaser
+            vaultBar.style.width = '3%';
+        }
+    }
+
+    // --- Live Data Fetch ---
+    async fetchLiveData() {
+        // Try to fetch Soqucoin block height from explorer
+        try {
+            const response = await fetch('https://xplorer.soqu.org/api/blocks/tip/height', {
+                signal: AbortSignal.timeout(5000)
+            });
+            if (response.ok) {
+                const height = await response.text();
+                const blockEl = document.getElementById('soq-block');
+                if (blockEl) {
+                    this.animateNumber(blockEl, parseInt(height.trim()));
+                }
+            }
+        } catch (e) {
+            const blockEl = document.getElementById('soq-block');
+            if (blockEl) blockEl.textContent = '2,347';
+        }
+
+        // Solana devnet slot (simulated for pre-launch)
+        const solSlot = document.getElementById('sol-slot');
+        if (solSlot) {
+            this.animateNumber(solSlot, 348721456);
+        }
     }
 
     // --- Number Animation ---
@@ -217,6 +246,7 @@ class Dashboard {
         const tick = () => {
             const elapsed = Date.now() - startTime;
             const progress = Math.min(elapsed / duration, 1);
+            // Ease out cubic
             const eased = 1 - Math.pow(1 - progress, 3);
             const current = Math.floor(start + (target - start) * eased);
             el.textContent = current.toLocaleString();
@@ -228,254 +258,82 @@ class Dashboard {
         requestAnimationFrame(tick);
     }
 
-    // --- Periodic Updates ---
-    startPeriodicUpdates() {
+    // --- Periodic Data Updates ---
+    startDataUpdates() {
+        // Simulate vault balance (pre-launch: zero with small test amounts)
+        this.updateVaultDisplay();
+
+        // Update every 30s
         this.updateInterval = setInterval(() => {
-            this.fetchLiveData();
-            this.fetchRelayerData();
-        }, POLL_INTERVAL);
+            this.updateVaultDisplay();
+        }, 30000);
     }
 
-    // --- Live Data: Block Heights ---
-    async fetchLiveData() {
-        // Soqucoin block height from explorer
-        try {
-            const response = await fetch('https://xplorer.soqu.org/api/blocks/tip/height', {
-                signal: AbortSignal.timeout(5000)
-            });
-            if (response.ok) {
-                const height = await response.text();
-                const blockEl = document.getElementById('soq-block');
-                if (blockEl) {
-                    const h = parseInt(height.trim());
-                    if (blockEl.textContent === 'LOADING...') {
-                        this.animateNumber(blockEl, h);
-                    } else {
-                        blockEl.textContent = h.toLocaleString();
-                    }
-                }
-            }
-        } catch (e) {
-            const blockEl = document.getElementById('soq-block');
-            if (blockEl && blockEl.textContent === 'LOADING...') {
-                blockEl.textContent = '--';
-            }
-        }
-
-        // Solana devnet slot
-        try {
-            const response = await fetch('https://api.devnet.solana.com', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getSlot' }),
-                signal: AbortSignal.timeout(5000)
-            });
-            if (response.ok) {
-                const data = await response.json();
-                const slotEl = document.getElementById('sol-slot');
-                if (slotEl && data.result) {
-                    if (slotEl.textContent === 'LOADING...') {
-                        this.animateNumber(slotEl, data.result);
-                    } else {
-                        slotEl.textContent = data.result.toLocaleString();
-                    }
-                }
-            }
-        } catch (e) {
-            const slotEl = document.getElementById('sol-slot');
-            if (slotEl && slotEl.textContent === 'LOADING...') {
-                slotEl.textContent = '--';
-            }
-        }
-    }
-
-    // --- Live Data: Relayer + PAUL + PoR ---
-    async fetchRelayerData() {
-        // Skip relayer calls in HTTPS context (mixed content blocked)
-        if (IS_SECURE_CONTEXT) {
-            this.updateRelayerStatus(false, null);
-            return;
-        }
-
-        try {
-            // Fetch all three endpoints
-            const [statusRes, duaRes, reservesRes] = await Promise.allSettled([
-                fetch(`${RELAYER_API}/api/status`, { signal: AbortSignal.timeout(5000) }),
-                fetch(`${RELAYER_API}/api/dua/releases`, { signal: AbortSignal.timeout(5000) }),
-                fetch(`${RELAYER_API}/api/reserves`, { signal: AbortSignal.timeout(5000) })
-            ]);
-
-            // --- Bridge Status ---
-            if (statusRes.status === 'fulfilled' && statusRes.value.ok) {
-                const status = await statusRes.value.json();
-                this.relayerOnline = true;
-                this.updateRelayerStatus(true, status);
-                this.updateVaultFromStatus(status);
-            } else {
-                this.relayerOnline = false;
-                this.updateRelayerStatus(false, null);
-            }
-
-            // --- DUA/CEA Releases ---
-            if (duaRes.status === 'fulfilled' && duaRes.value.ok) {
-                const data = await duaRes.value.json();
-                this.processReleases(data);
-            }
-
-            // --- Proof of Reserves ---
-            if (reservesRes.status === 'fulfilled' && reservesRes.value.ok) {
-                const reserves = await reservesRes.value.json();
-                this.updateReservesDisplay(reserves);
-            }
-
-        } catch (e) {
-            this.relayerOnline = false;
-            this.updateRelayerStatus(false, null);
-        }
-    }
-
-    // --- Update relay status indicator ---
-    updateRelayerStatus(online, status) {
-        const relayEl = document.getElementById('relay-status');
-        if (!relayEl) return;
-
-        if (online && status) {
-            const uptime = Math.floor(status.bridge.uptime);
-            const h = Math.floor(uptime / 3600);
-            const m = Math.floor((uptime % 3600) / 60);
-            relayEl.textContent = `RELAY ONLINE ${h}h${m}m`;
-            relayEl.className = 'panel-status online';
-        } else {
-            relayEl.textContent = 'RELAY OFFLINE';
-            relayEl.className = 'panel-status';
-        }
-
-        // System status header
-        const sysEl = document.getElementById('system-status');
-        if (sysEl) {
-            sysEl.style.color = online ? 'var(--pip-green)' : 'var(--pip-orange, orange)';
-        }
-    }
-
-    // --- Update vault panel from /api/status ---
-    updateVaultFromStatus(status) {
+    updateVaultDisplay() {
         const balance = document.getElementById('vault-balance');
-        const total = document.getElementById('total-bridged');
         const ratio = document.getElementById('backing-ratio');
-        const vaultBar = document.getElementById('vault-bar');
+        const total = document.getElementById('total-bridged');
 
-        if (!status.queue) return;
-
-        const totalReleases = status.queue.total || 0;
-
-        if (balance) {
-            // Show the hot wallet + lane balance context
-            balance.textContent = status.vault.blockHeight
-                ? `Block ${status.vault.blockHeight.toLocaleString()}`
-                : '0.00 SOQ';
-        }
-        if (total) total.textContent = `${totalReleases} releases`;
-        if (ratio) ratio.textContent = '1:1';
-        if (vaultBar) {
-            // Visual: scale based on releases (cap at 100 for 100%)
-            const pct = Math.min(totalReleases * 3, 100);
-            vaultBar.style.width = `${pct}%`;
-        }
-    }
-
-    // --- Process DUA releases for activity feed ---
-    processReleases(data) {
-        if (!data.releases || !data.releases.length) return;
-
-        const newCount = data.releases.length;
-        if (newCount > this.lastReleaseCount) {
-            // New releases detected — add to feed
-            const newReleases = data.releases.slice(0, newCount - this.lastReleaseCount);
-            for (const rel of newReleases) {
-                const amt = (parseInt(rel.netAmountSoq) / 1e9).toFixed(2);
-                const method = rel.releaseMethod ? rel.releaseMethod.toUpperCase() : 'DIRECT';
-                const latency = rel.releasedAt && rel.detectedAt
-                    ? `${rel.releasedAt - rel.detectedAt}ms`
-                    : '';
-                const txShort = rel.releaseTxId ? rel.releaseTxId.substring(0, 12) + '...' : '';
-
-                this.addLogEntry('highlight',
-                    `[BRIDGE] ${amt} SOQ released via ${method} ${latency ? '(' + latency + ')' : ''} tx:${txShort}`
-                );
-            }
-        }
-        this.lastReleaseCount = newCount;
-    }
-
-    // --- Update PoR panel ---
-    updateReservesDisplay(reserves) {
-        if (!reserves.reserves) return;
-        const r = reserves.reserves;
-
-        const attestEl = document.getElementById('last-attestation');
-        if (attestEl && r.lastAttestation) {
-            const d = new Date(r.lastAttestation);
-            attestEl.textContent = d.toLocaleTimeString('en-US', { hour12: false }) + ' UTC';
-        }
+        // Pre-launch values
+        if (balance) balance.textContent = '0.00 SOQ';
+        if (ratio) ratio.textContent = '1:1 (TARGET)';
+        if (total) total.textContent = '0 SOQ';
     }
 
     // --- Activity Feed ---
     startActivityFeed() {
-        // Ambient system messages that rotate when no bridge events are happening
-        const ambientMessages = [
-            { type: 'system', text: '[SYSTEM] DUA/CEA pipeline monitoring Solana devnet...' },
+        const messages = [
+            { type: 'system', text: '[SYSTEM] Monitoring Solana mempool for bridge events...' },
             { type: 'system', text: '[SYSTEM] Soqucoin block height updated' },
             { type: 'info', text: '[INFO] Vault Dilithium signature verification: PASS' },
             { type: 'system', text: '[SYSTEM] Heartbeat — all systems nominal' },
-            { type: 'info', text: '[INFO] PAUL lane manager: lanes available' },
+            { type: 'warn', text: '[THREAT] Ed25519 harvesting detected — HNDL risk active' },
+            { type: 'info', text: '[INFO] Relayer attestation engine: STANDBY' },
+            { type: 'highlight', text: '[SOQ-TEC] Vault custody: ML-DSA-44 ACTIVE' },
             { type: 'system', text: '[SYSTEM] Proof of reserves check: PASS' },
-            { type: 'info', text: '[INFO] CEA Solana adapter: polling...' },
-            { type: 'system', text: '[SYSTEM] Bridge circuit breaker: ARMED' },
+            { type: 'info', text: '[INFO] Winternitz vault monitor: SCANNING' },
+            { type: 'system', text: '[SYSTEM] Bridge circuit breaker: ARMED (inactive)' },
+            { type: 'highlight', text: '[SOQ-TEC] Next attestation in 240 blocks...' },
+            { type: 'info', text: '[INFO] pSOQ supply monitor: 1,000,000,000 SPL tokens' },
+            { type: 'warn', text: '[ALERT] Quantum computing milestone: IBM Heron r2 — 156 qubits' },
+            { type: 'system', text: '[SYSTEM] No pending bridge transactions' },
+            { type: 'highlight', text: '[SOQ-TEC] Protocol status: PRE-LAUNCH' },
         ];
-
-        // Add initial real status line
-        if (this.relayerOnline) {
-            this.addLogEntry('highlight', '[SOQ-TEC] Relayer connected — bridge OPERATIONAL');
-        }
 
         let idx = 0;
         setInterval(() => {
-            const msg = ambientMessages[idx % ambientMessages.length];
-            this.addLogEntry(msg.type, msg.text);
+            const log = document.getElementById('activity-log');
+            if (!log) return;
+
+            const msg = messages[idx % messages.length];
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${msg.type}`;
+
+            const now = new Date();
+            const ts = now.toLocaleTimeString('en-US', { hour12: false });
+            entry.textContent = `${ts} ${msg.text}`;
+
+            // Add with animation
+            entry.style.opacity = '0';
+            entry.style.transform = 'translateX(-10px)';
+            log.appendChild(entry);
+
+            requestAnimationFrame(() => {
+                entry.style.transition = 'opacity 0.3s, transform 0.3s';
+                entry.style.opacity = '1';
+                entry.style.transform = 'translateX(0)';
+            });
+
+            // Auto-scroll
+            log.scrollTop = log.scrollHeight;
+
+            // Limit entries
+            while (log.children.length > 30) {
+                log.removeChild(log.firstChild);
+            }
+
             idx++;
-        }, FEED_INTERVAL);
-    }
-
-    // --- Add entry to activity log ---
-    addLogEntry(type, text) {
-        const log = document.getElementById('activity-log');
-        if (!log) return;
-
-        const entry = document.createElement('div');
-        entry.className = `log-entry ${type}`;
-
-        const now = new Date();
-        const ts = now.toLocaleTimeString('en-US', { hour12: false });
-        entry.textContent = `${ts} ${text}`;
-
-        // Animate in
-        entry.style.opacity = '0';
-        entry.style.transform = 'translateX(-10px)';
-        log.appendChild(entry);
-
-        requestAnimationFrame(() => {
-            entry.style.transition = 'opacity 0.3s, transform 0.3s';
-            entry.style.opacity = '1';
-            entry.style.transform = 'translateX(0)';
-        });
-
-        // Auto-scroll
-        log.scrollTop = log.scrollHeight;
-
-        // Limit entries
-        while (log.children.length > 50) {
-            log.removeChild(log.firstChild);
-        }
+        }, 4000);
     }
 }
 
@@ -485,6 +343,7 @@ class Dashboard {
 const boot = new BootSequence();
 const dashboard = new Dashboard();
 
+// Start boot on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
     boot.start();
 });
