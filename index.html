@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SOQ-TEC Terminal v1.0 | Quantum-Tolerant Ecosystem Custody</title>
+    <title>SOQ-TEC Terminal v1.1 | Quantum-Tolerant Ecosystem Custody</title>
     <meta name="description" content="SOQ-TEC: Soqucoin Operations for Quantum-Tolerant Ecosystem Custody. The first quantum-safe cross-chain bridge for the Solana ecosystem. Prepared for the Quantum Future.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -31,7 +31,7 @@
             <div class="header-left">
                 <div class="header-icon">◆</div>
                 <span class="header-title">SOQ-TEC TERMINAL</span>
-                <span class="header-version">v1.0.0</span>
+                <span class="header-version">v1.1.0</span>
             </div>
             <div class="header-center">
                 <span class="header-status" id="system-status">●</span>
@@ -172,13 +172,9 @@
                 <div class="panel-body">
                     <div class="activity-log" id="activity-log">
                         <div class="log-entry system">[SYSTEM] SOQ-TEC Bridge Protocol initializing...</div>
-                        <div class="log-entry system">[SYSTEM] Relayer nodes: 0/5 connected</div>
-                        <div class="log-entry system">[SYSTEM] Awaiting bridge activation...</div>
-                        <div class="log-entry info">[INFO] Bridge program deployment: PENDING</div>
-                        <div class="log-entry info">[INFO] Solana devnet escrow: NOT DEPLOYED</div>
-                        <div class="log-entry warn">[WARN] Bridge is in PRE-LAUNCH mode</div>
-                        <div class="log-entry highlight">[SOQ-TEC] Vault custody: ML-DSA-44 Dilithium READY</div>
-                        <div class="log-entry highlight">[SOQ-TEC] Soqucoin Testnet3: OPERATIONAL</div>
+                        <div class="log-entry highlight">[SOQ-TEC] DUA/CEA pipeline: ACTIVE</div>
+                        <div class="log-entry info">[INFO] PAUL Lane Manager: OPERATIONAL</div>
+                        <div class="log-entry system">[SYSTEM] Connecting to relayer API...</div>
                     </div>
                 </div>
             </div>
@@ -253,15 +249,15 @@
                             <div class="security-text">AuxPoW Consensus</div>
                             <div class="security-detail">Scrypt + Dilithium</div>
                         </div>
-                        <div class="security-item pending">
-                            <div class="security-icon">◌</div>
+                        <div class="security-item active">
+                            <div class="security-icon">✓</div>
                             <div class="security-text">Bridge Escrow</div>
-                            <div class="security-detail">In Development</div>
+                            <div class="security-detail">Deployed (devnet)</div>
                         </div>
-                        <div class="security-item pending">
-                            <div class="security-icon">◌</div>
-                            <div class="security-text">Relayer Network</div>
-                            <div class="security-detail">In Development</div>
+                        <div class="security-item active">
+                            <div class="security-icon">✓</div>
+                            <div class="security-text">Relayer + PAUL</div>
+                            <div class="security-detail">Operational</div>
                         </div>
                     </div>
                 </div>
@@ -337,7 +333,7 @@
         <!-- Footer -->
         <footer class="terminal-footer">
             <div class="footer-left">
-                <span class="footer-item">SOQ-TEC v1.0.0 | Soqucoin Labs Inc.</span>
+                <span class="footer-item">SOQ-TEC v1.1.0 | Soqucoin Labs Inc.</span>
             </div>
             <div class="footer-center">
                 <span class="footer-item">◆ COLOSSEUM FRONTIER HACKATHON 2026 ◆</span>
