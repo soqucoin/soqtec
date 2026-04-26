@@ -35,8 +35,8 @@ HOT_RPC_USER    = "soqucoin_hot"
 HOT_RPC_PASS    = "hot_wallet_ops_2026_secure"
 
 LANE_DENOMINATIONS = [10, 50, 100, 500, 1000, 5000, 10000]  # SOQ
-MIN_LANE_DEPTH     = 1      # UTXOs per denomination (trigger refill) — TEST: was 5
-TARGET_LANE_DEPTH  = 1      # UTXOs per denomination (refill target)  — TEST: was 10
+MIN_LANE_DEPTH     = 5      # UTXOs per denomination (trigger refill)
+TARGET_LANE_DEPTH  = 10     # UTXOs per denomination (refill target)
 TX_FEE_SOQ         = 0.001  # Network fee per release TX (conservative)
 DUST_SOQ           = 0.001  # Minimum change output to bother creating
 REFILL_INTERVAL    = 60     # Seconds between refill checks
