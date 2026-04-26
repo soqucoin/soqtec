@@ -428,11 +428,12 @@ export async function startApiServer(
       });
     }
 
-    res.json({
+    const body = JSON.stringify({
       ok: true,
       enabled: true,
       ...duaRouter.getStatus(),
-    });
+    }, (_, v) => typeof v === 'bigint' ? v.toString() : v);
+    res.type('json').send(body);
   });
 
   // ──────────────────────────────────────────
@@ -445,10 +446,11 @@ export async function startApiServer(
     }
 
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
-    res.json({
+    const body = JSON.stringify({
       ok: true,
       releases: duaRouter.getRecentReleases(limit),
-    });
+    }, (_, v) => typeof v === 'bigint' ? v.toString() : v);
+    res.type('json').send(body);
   });
 
   // ──────────────────────────────────────────
