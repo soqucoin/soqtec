@@ -1,0 +1,18 @@
+[Unit]
+Description=SOQ-TEC Lane Manager — PAUL Pre-Allocated UTXO Lanes
+Documentation=https://soqucoin.com/soq-tec
+After=network.target soqucoind-hot.service
+Requires=soqucoind-hot.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/soqtec-lane-manager.py
+Restart=always
+RestartSec=5
+User=root
+WorkingDirectory=/var/lib/soqtec-lane-manager
+StandardOutput=append:/var/log/soqtec-lane-manager.log
+StandardError=append:/var/log/soqtec-lane-manager.log
+
+[Install]
+WantedBy=multi-user.target

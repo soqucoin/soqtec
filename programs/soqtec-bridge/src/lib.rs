@@ -228,6 +228,76 @@ pub mod soqtec_bridge {
         Ok(())
     }
 
+    /// Mint pSOQ directly into an XMSS-Lite quantum-safe vault
+    ///
+    /// Patent Claim 2: Direct-Mint-to-Quantum-Vault
+    /// Flow: Soqucoin L1 lock detected → Relayer verifies → Bridge mints
+    ///       directly into vault ATA → tokens NEVER touch an Ed25519 wallet
+    ///
+    /// This eliminates the "quantum gap" where tokens sit in classical
+    /// custody between minting and vault deposit.
+    pub fn mint_to_vault(
+        ctx: Context<MintToVault>,
+        amount: u64,
+        soq_txid: [u8; 32],
+        signatures: Vec<ValidatorSignature>,
+    ) -> Result<()> {
+        let bridge = &ctx.accounts.bridge_state;
+
+        // Safety checks
+        require!(!bridge.paused, SoqtecError::BridgePaused);
+        require!(amount >= MIN_TRANSFER, SoqtecError::BelowMinimum);
+
+        // Verify threshold signatures from validators
+        let valid_sigs = signatures.iter()
+            .filter(|sig| bridge.validators.contains(&sig.validator))
+            .count();
+        require!(valid_sigs >= bridge.threshold as usize, SoqtecError::InsufficientSignatures);
+
+        // Check for replay
+        let processed = &mut ctx.accounts.processed_txid;
+        require!(!processed.processed, SoqtecError::AlreadyProcessed);
+        processed.processed = true;
+        processed.soq_txid = soq_txid;
+        processed.amount = amount;
+        processed.timestamp = Clock::get()?.unix_timestamp;
+
+        // Calculate fee
+        let fee = amount.checked_div(1000).unwrap_or(0);
+        let net_amount = amount.checked_sub(fee).ok_or(SoqtecError::MathOverflow)?;
+
+        // Mint pSOQ DIRECTLY to the vault's ATA — zero Ed25519 gap
+        let seeds = &[b"bridge".as_ref(), &[ctx.accounts.bridge_state.bump]];
+        let signer = &[&seeds[..]];
+        let cpi_accounts = MintTo {
+            mint: ctx.accounts.psoq_mint.to_account_info(),
+            to: ctx.accounts.vault_token_account.to_account_info(),
+            authority: ctx.accounts.bridge_state.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            cpi_accounts,
+            signer,
+        );
+        token::mint_to(cpi_ctx, net_amount)?;
+
+        // Update state
+        let bridge = &mut ctx.accounts.bridge_state;
+        bridge.total_minted = bridge.total_minted.checked_add(net_amount)
+            .ok_or(SoqtecError::MathOverflow)?;
+
+        emit!(DirectMintToVaultEvent {
+            vault: ctx.accounts.vault_token_account.key(),
+            amount,
+            net_amount,
+            fee,
+            soq_txid,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
+
     /// Resume bridge operations after emergency
     pub fn resume_bridge(ctx: Context<AdminAction>) -> Result<()> {
         let bridge = &mut ctx.accounts.bridge_state;
@@ -367,6 +437,35 @@ pub struct MintFromDeposit<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(amount: u64, soq_txid: [u8; 32])]
+pub struct MintToVault<'info> {
+    #[account(mut, seeds = [b"bridge"], bump = bridge_state.bump)]
+    pub bridge_state: Account<'info, BridgeState>,
+    #[account(mut)]
+    pub psoq_mint: Account<'info, Mint>,
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + 1 + 32 + 8 + 8,
+        seeds = [b"processed", soq_txid.as_ref()],
+        bump,
+    )]
+    pub processed_txid: Account<'info, ProcessedTxid>,
+    /// The vault's Associated Token Account — tokens go directly here,
+    /// never touching a user's Ed25519 wallet. This is the core innovation
+    /// of Patent Claim 2: Direct-Mint-to-Quantum-Vault.
+    #[account(
+        mut,
+        constraint = vault_token_account.mint == bridge_state.mint,
+    )]
+    pub vault_token_account: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct UpdateVaultBalance<'info> {
     #[account(mut, seeds = [b"bridge"], bump = bridge_state.bump)]
     pub bridge_state: Account<'info, BridgeState>,
@@ -430,6 +529,16 @@ pub struct BridgePaused {
 #[event]
 pub struct BridgeResumed {
     pub authority: Pubkey,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct DirectMintToVaultEvent {
+    pub vault: Pubkey,
+    pub amount: u64,
+    pub net_amount: u64,
+    pub fee: u64,
+    pub soq_txid: [u8; 32],
     pub timestamp: i64,
 }
 

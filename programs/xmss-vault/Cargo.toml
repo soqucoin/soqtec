@@ -1,0 +1,23 @@
+[package]
+name = "xmss-vault"
+version = "0.1.0"
+description = "XMSS-Lite Revolving Vault: Quantum-resistant SPL token custody with Merkle tree of WOTS+ keypairs"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/soqucoin/soqtec"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "xmss_vault"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = "0.31"
+anchor-spl = "0.31"

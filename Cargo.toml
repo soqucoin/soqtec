@@ -1,5 +1,5 @@
 [workspace]
-members = ["programs/soqtec-bridge"]
+members = ["programs/soqtec-bridge", "programs/xmss-vault"]
 resolver = "2"
 
 [profile.release]

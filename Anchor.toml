@@ -6,9 +6,11 @@ skip-lint = false
 
 [programs.localnet]
 soqtec_bridge = "9pCJxjVF8VTizZ9RZZLTu997y2DafWgUGqYbrNiqPw36"
+xmss_vault = "7k4TwwBSZ4a7JA83MgSsqxczU6bpR7qV3uUNGWbTEz8H"
 
 [programs.devnet]
 soqtec_bridge = "9pCJxjVF8VTizZ9RZZLTu997y2DafWgUGqYbrNiqPw36"
+xmss_vault = "7k4TwwBSZ4a7JA83MgSsqxczU6bpR7qV3uUNGWbTEz8H"
 
 [registry]
 url = "https://api.apr.dev"

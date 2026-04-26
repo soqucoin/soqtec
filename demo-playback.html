@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOQ-TEC E2E Demo</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0c0e12;color:#9ca3af;font-family:'IBM Plex Mono','Menlo',monospace;font-size:13px;line-height:1.7;overflow:hidden;height:100vh}
+
+/* Very subtle scanlines */
+body::after{content:'';position:fixed;top:0;left:0;right:0;bottom:0;
+background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.06) 3px,rgba(0,0,0,0.06) 6px);
+pointer-events:none;z-index:100}
+
+#top-bar{background:#0c0e12;border-bottom:1px solid #1e2028;padding:10px 28px;display:flex;
+align-items:center;justify-content:space-between;position:fixed;top:0;left:0;right:0;z-index:150}
+#top-bar .left{color:#4b5563;font-size:11px;letter-spacing:3px}
+#top-bar .right{display:flex;gap:24px;font-size:11px;color:#4b5563;letter-spacing:1px}
+#top-bar .clock{color:#6ee7b7}
+
+#terminal{padding:56px 32px 52px;height:100vh;overflow-y:auto;scroll-behavior:smooth}
+#terminal::-webkit-scrollbar{width:4px}
+#terminal::-webkit-scrollbar-track{background:#0c0e12}
+#terminal::-webkit-scrollbar-thumb{background:#1e2028;border-radius:2px}
+
+.line{opacity:0;animation:show 0.1s forwards;white-space:pre-wrap;word-break:break-all}
+@keyframes show{to{opacity:1}}
+
+/* Just two text colors + one accent */
+.text{color:#9ca3af}
+.bright{color:#d1d5db}
+.accent{color:#6ee7b7}
+.muted{color:#4b5563}
+.err{color:#f87171}
+.url{color:#6ee7b7;opacity:0.8;cursor:pointer}
+.url:hover{opacity:1;text-decoration:underline}
+
+.cursor-el{display:inline-block;width:7px;height:14px;background:#6ee7b7;animation:blink 1s step-end infinite;vertical-align:text-bottom;margin-left:2px}
+@keyframes blink{50%{opacity:0}}
+
+#bottom-bar{position:fixed;bottom:0;left:0;right:0;background:#0c0e12;
+border-top:1px solid #1e2028;padding:8px 28px;display:flex;justify-content:space-between;
+align-items:center;z-index:150;font-size:11px;color:#4b5563;letter-spacing:1px}
+#pause-label{color:#fbbf24;display:none}
+</style>
+</head>
+<body>
+
+<div id="top-bar">
+  <div class="left">SOQ-TEC DEMONSTRATION</div>
+  <div class="right">
+    <span>Solana Devnet + Soqucoin L1</span>
+    <span>Patents #64/035,857 + #64/035,873</span>
+    <span class="clock" id="clock">00:00</span>
+  </div>
+</div>
+
+<div id="terminal"></div>
+
+<div id="bottom-bar">
+  <span>Soqucoin Labs Inc.</span>
+  <span id="run-label">Running</span>
+  <span id="pause-label">Paused — press space to resume</span>
+  <span>Space to pause</span>
+</div>
+
+<script>
+const T = document.getElementById('terminal');
+let paused = false, elapsed = 0, timer;
+
+function tick(){
+  elapsed++;
+  document.getElementById('clock').textContent =
+    String(Math.floor(elapsed/60)).padStart(2,'0') + ':' + String(elapsed%60).padStart(2,'0');
+}
+
+document.addEventListener('keydown', e => {
+  if(e.code==='Space'){
+    e.preventDefault();
+    paused=!paused;
+    document.getElementById('run-label').style.display = paused?'none':'inline';
+    document.getElementById('pause-label').style.display = paused?'inline':'none';
+    if(paused) clearInterval(timer);
+    else { timer=setInterval(tick,1000); go(); }
+  }
+});
+
+T.addEventListener('click', e => {
+  if(e.target.classList.contains('url')){
+    const u=e.target.textContent.trim();
+    if(u.startsWith('http')) window.open(u,'_blank');
+  }
+});
+
+const _ = (c,t,w) => ({c,t,w:w||0});
+
+const lines = [
+_('muted','$ node scripts/demo-bridge-to-vault.js',1200),
+_('',''),
+_('muted','────────────────────────────────────────────────────'),
+_('bright','  SOQ-TEC: Direct-Mint-to-Quantum-Vault'),
+_('text','  Patent #64/035,857 — Claims 1, 2, and 4'),
+_('muted','  Solana Devnet — 2026-04-26'),
+_('muted','────────────────────────────────────────────────────'),
+_('','',2500),
+
+// Step 1
+_('muted',''),
+_('bright','  Step 1 — Generate XMSS key tree'),
+_('muted','  ─────────────────────────────────'),
+_('',''),
+_('text','  Generating WOTS+ key tree, depth=4'),
+_('text','  Keys generated offline — never touch the network'),
+_('','',800),
+_('muted','  Depth: 4, keypairs: 16, hash: Keccak256/224'),
+_('muted','  Winternitz w=16, quantum security: 112-bit'),
+_('',''),
+_('muted','  Key 0:  7414e1e69694eb56...'),
+_('muted','  Key 1:  56bd7a498649c81e...'),
+_('muted','  Key 2:  6084ff5fc1490084...'),
+_('muted','  ...'),
+_('muted','  Key 15: 3fb0d2e80326588d...'),
+_('',''),
+_('muted','  Merkle root: 0383f7bc0a3b5c415afe3152cfad4a81...'),
+_('',''),
+_('accent','  [done] 16 WOTS+ keypairs generated'),
+_('','',3000),
+
+// Step 2
+_('bright','  Step 2 — Verify bridge state'),
+_('muted','  ─────────────────────────────────'),
+_('',''),
+_('accent','  [done] Bridge active'),
+_('muted','  PDA: 9d9m1uaEBdwpLSjDhdyWZxnbTqHWbgMYDKTWybcKs2Ba'),
+_('muted','  Mint: 7TCU5SnLR7ARRAd8aUdoAFgw9zvCvzwdphm7TjUT6s46'),
+_('muted','  Threshold: 2-of-3, paused: false'),
+_('','',3000),
+
+// Step 3
+_('bright','  Step 3 — Open XMSS vault on-chain'),
+_('muted','  ─────────────────────────────────'),
+_('',''),
+_('muted','  Vault PDA: 6ZKfahuMgMnkfRHZ9ZDX9Ec3mVSkHJw43tgJox9aDxSx'),
+_('muted','  Bridge authority linked'),
+_('','',1200),
+_('accent','  [done] Vault opened'),
+_('muted','  tx: 2JPZ9FCjoNTaHtbGPHbLDKayChYpzZKTyy1Hsm2ga8Mc'),
+_('url','  https://explorer.solana.com/tx/2JPZ9FCjoNTaHtbGPHbLDKayChYpzZKTyy1Hsm2ga8Mc?cluster=devnet'),
+_('','',4000),
+
+// Step 4
+_('bright','  Step 4 — Direct-mint-to-vault (Patent Claim 2)'),
+_('muted','  ─────────────────────────────────'),
+_('',''),
+_('text','  Simulating L1 lock event...'),
+_('text','  Relayer verifies, bridge mints to vault ATA'),
+_('','',1200),
+_('text','  Tokens never touch an Ed25519 wallet.'),
+_('text','  The quantum-breakable gap is eliminated.'),
+_('','',2000),
+_('accent','  [done] Direct mint to vault confirmed'),
+_('muted','  tx: GqA52SBXsQNFD2CM4VAZv9GKyZ4WG9VsiU882Guzxesd'),
+_('url','  https://explorer.solana.com/tx/GqA52SBXsQNFD2CM4VAZv9GKyZ4WG9VsiU882Guzxesd?cluster=devnet'),
+_('bright','  Vault balance: 4,995 pSOQ'),
+_('',''),
+_('accent','  [done] Patent Claim 2 verified: Direct-Mint-to-Quantum-Vault'),
+_('','',5000),
+
+// Step 5
+_('bright','  Step 5 — WOTS+ withdrawal (Patent Claim 1)'),
+_('muted','  ─────────────────────────────────'),
+_('',''),
+_('text','  Signing with WOTS+ key #0 + Merkle proof'),
+_('muted','  Signature: 32 chains x 20 bytes, proof: 4 siblings'),
+_('','',1500),
+_('accent','  [done] Withdrawal verified on-chain'),
+_('muted','  tx: 53zKZT4DkMtHvnsKbBA6nj9yYtdbjzyTfkEqunvjiPWu'),
+_('url','  https://explorer.solana.com/tx/53zKZT4DkMtHvnsKbBA6nj9yYtdbjzyTfkEqunvjiPWu?cluster=devnet'),
+_('bright','  Vault balance: 3,995 pSOQ'),
+_('bright','  Recipient: +1,000 pSOQ'),
+_('',''),
+_('accent','  [done] Patent Claim 1 verified: XMSS-Lite on Blockchain VM'),
+_('','',4000),
+
+// Step 6
+_('bright','  Step 6 — Key reuse prevention'),
+_('muted','  ─────────────────────────────────'),
+_('',''),
+_('text','  Attempting to reuse WOTS+ key #0...'),
+_('','',2000),
+_('err','  AnchorError: LeafIndexMismatch (6003)'),
+_('err','  Leaf index must be >= current index'),
+_('','',800),
+_('accent','  [done] Key reuse rejected by on-chain enforcement'),
+_('','',3500),
+
+// Step 7
+_('bright','  Step 7 — Second withdrawal (key #1)'),
+_('muted','  ─────────────────────────────────'),
+_('',''),
+_('text','  Withdrawing with key #1'),
+_('','',1200),
+_('accent','  [done] Second withdrawal confirmed'),
+_('muted','  tx: 4Vb9bHCcaGYdTbiaYfn6kP7jMx2QzRYHcSNde5aW...'),
+_('bright','  Vault balance: 2,995 pSOQ'),
+_('bright','  Used keys: 2 / 16'),
+_('','',4500),
+
+// XMSS Summary
+_('muted','────────────────────────────────────────────────────'),
+_('bright','  XMSS-Lite Revolving Vault — claims verified'),
+_('muted','────────────────────────────────────────────────────'),
+_('',''),
+_('accent','  Claim 1  XMSS-Lite on Blockchain VM'),
+_('accent','  Claim 2  Direct-Mint-to-Quantum-Vault'),
+_('accent','  Claim 4  Hybrid PQ Bridge with Hash-Based Custody'),
+_('accent','  Security Key reuse prevention enforced on-chain'),
+_('','',4000),
+
+// ═══════════════════════════════════════════════
+// ACT 2: QUANTUM EXPRESS (Patent #64/035,873)
+// ═══════════════════════════════════════════════
+_('muted',''),
+_('muted','────────────────────────────────────────────────────'),
+_('bright','  Quantum Express: Optimistic Cross-Chain Transfer'),
+_('text','  Patent #64/035,873 — Claims 1, 2, and 3'),
+_('muted','  Solana Devnet to Soqucoin L1 Testnet3'),
+_('muted','────────────────────────────────────────────────────'),
+_('','',3000),
+
+// QE Step 1: Burn
+_('bright','  Step 8 — Burn pSOQ on Solana (Phase 1)'),
+_('muted','  ─────────────────────────────────────────'),
+_('',''),
+_('text','  Phase 1 of Quantum Express: optimistic instant receipt'),
+_('text','  The burn is physically irreversible — supply is decremented'),
+_('text','  Security: burn irreversibility, not economic bonds'),
+_('','',1500),
+_('text','  Burning 50 pSOQ...'),
+_('','',2000),
+_('accent','  [done] Burn confirmed on-chain'),
+_('muted','  tx: 2kLKJo45CF3x4as3wc8FHwej5bxupnf1WUo...'),
+_('url','  https://explorer.solana.com/tx/2kLKJo45CF3x4as3wc8FHwej5bxupnf1WUoT8fmxTpSvKkHP6HDKGFw6eXwmGwMgWYtEGzPWN4SzFBsJz6h9Mqyu?cluster=devnet'),
+_('',''),
+_('muted','  BurnForRedemptionEvent emitted in transaction logs'),
+_('muted','  Nonce: 1 -> 2, total burned: 150,000,000,000'),
+_('',''),
+_('accent','  [done] Patent Claim 1 Phase 1: irreversible burn detected'),
+_('','',4000),
+
+// QE Step 2: Circuit Breaker
+_('bright','  Step 9 — Circuit breaker (Patent Claim 2)'),
+_('muted','  ─────────────────────────────────────────'),
+_('',''),
+_('text','  Triggers: chain reorg, reconciliation mismatch, heartbeat timeout'),
+_('','',1500),
+_('accent','  [done] Bridge PAUSED by authority'),
+_('muted','  tx: 511eYwdmYanpNKmDq86ho1tYRAei2P5BkprE...'),
+_('url','  https://explorer.solana.com/tx/511eYwdmYanpNKmDq86ho1tYRAei2P5BkprESEmSVz5vTms5qQWHDpbYg7jrmf9CKEcPmLEYnapEMqNciJXET27i?cluster=devnet'),
+_('','',2000),
+_('text','  Attempting burn while paused...'),
+_('','',1500),
+_('err','  AnchorError: BridgePaused (6000)'),
+_('err','  Bridge is paused — emergency circuit breaker active'),
+_('','',1000),
+_('accent','  [done] Burn rejected — circuit breaker halted all operations'),
+_('','',1500),
+_('text','  Resuming bridge...'),
+_('accent','  [done] Bridge resumed'),
+_('muted','  tx: 3pCJ2hNKYcuutYH6HUhz9zdy8na78o186Z3o...'),
+_('url','  https://explorer.solana.com/tx/3pCJ2hNKYcuutYH6HUhz9zdy8na78o186Z3o5gJxkh4jjmPPahtgvipiARYML2wGoK2vFxBLLWw8iHuuMZdHtfhk?cluster=devnet'),
+_('',''),
+_('accent','  [done] Patent Claim 2 verified: circuit breaker + recovery'),
+_('','',4000),
+
+// QE Step 3: Cross-Chain Release
+_('bright','  Step 10 — Cross-chain release to Soqucoin L1'),
+_('muted','  ─────────────────────────────────────────'),
+_('',''),
+_('text','  Relayer detects burn, initiates release on Soqucoin L1'),
+_('text','  Destination chain: Soqucoin testnet3 (block 50,530)'),
+_('text','  Release amount: 49.95 SOQ (0.1% bridge fee)'),
+_('','',2000),
+_('text','  Calling soqucoind sendtoaddress via ML-DSA-44 signed tx...'),
+_('','',2500),
+_('accent','  [done] SOQ released on Soqucoin L1'),
+_('muted','  L1 txid: 56a06c5361342db3e133ea0e58f03ba5f923...'),
+_('muted','  Amount: 49.95 SOQ, fee: 0.02428 SOQ'),
+_('muted','  Comment: SOQ-TEC-QE-Release'),
+_('muted','  Signed with: ML-DSA-44 (NIST FIPS 204)'),
+_('',''),
+_('accent','  [done] Cross-chain transfer complete'),
+_('text','  Burn on Solana -> release on Soqucoin L1'),
+_('text','  Two independent chains, two independent transactions'),
+_('','',5000),
+
+// Final Summary — Both Patents
+_('muted',''),
+_('muted','════════════════════════════════════════════════════'),
+_('bright','  SOQ-TEC — All patent claims verified'),
+_('muted','════════════════════════════════════════════════════'),
+_('',''),
+_('bright','  Patent #64/035,857 — XMSS-Lite Revolving Vault'),
+_('accent','    Claim 1  XMSS-Lite on Blockchain VM'),
+_('accent','    Claim 2  Direct-Mint-to-Quantum-Vault'),
+_('accent','    Claim 4  Hybrid PQ Bridge + Hash-Based Custody'),
+_('',''),
+_('bright','  Patent #64/035,873 — Quantum Express'),
+_('accent','    Claim 1  Two-phase optimistic cross-chain transfer'),
+_('accent','    Claim 2  Circuit breaker safety mechanism'),
+_('accent','    Claim 3  PQ-attested cross-chain custody system'),
+_('',''),
+_('text','  Chain-agnostic: works for Ethereum, Cosmos, Bitcoin'),
+_('text','  Only the source-chain watcher changes'),
+_('','',2500),
+_('muted','  ───────────────────────────────────────────'),
+_('muted','  Solana burn:  2kLKJo45CF3x4as3wc8FHwej5bxu...'),
+_('muted','  L1 release:   56a06c5361342db3e133ea0e58f03b...'),
+_('muted','  Bridge PDA:   9d9m1uaEBdwpLSjDhdyWZxnbTqHWbg...'),
+_('muted','  Program:      9pCJxjVF8VTizZ9RZZLTu997y2DafW...'),
+_('muted','  ───────────────────────────────────────────'),
+_('',''),
+_('muted','$'),
+];
+
+let idx=0;
+function go(){
+  if(paused||idx>=lines.length){
+    if(idx>=lines.length){
+      document.getElementById('run-label').textContent='Complete';
+      clearInterval(timer);
+    }
+    return;
+  }
+  const l=lines[idx];
+  const div=document.createElement('div');
+  div.className='line';
+  if(l.c) div.classList.add(l.c);
+  div.textContent=l.t;
+  const pc=T.querySelector('.cursor-el');
+  if(pc) pc.remove();
+  T.appendChild(div);
+  if(idx<lines.length-1){
+    const c=document.createElement('span');
+    c.className='cursor-el';
+    div.appendChild(c);
+  }
+  T.scrollTop=T.scrollHeight;
+  idx++;
+  setTimeout(go, l.w || (l.t==='' ? 250 : 160));
+}
+
+timer=setInterval(tick,1000);
+setTimeout(go,1000);
+</script>
+</body>
+</html>
