@@ -84,7 +84,7 @@
           "type": {
             "array": [
               "u8",
-              34
+              64
             ]
           }
         }
@@ -229,6 +229,127 @@
         },
         {
           "name": "recipient"
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "soq_txid",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "signatures",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "ValidatorSignature"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "mint_to_vault",
+      "docs": [
+        "Mint pSOQ directly into an XMSS-Lite quantum-safe vault",
+        "",
+        "Patent Claim 2: Direct-Mint-to-Quantum-Vault",
+        "Flow: Soqucoin L1 lock detected → Relayer verifies → Bridge mints",
+        "directly into vault ATA → tokens NEVER touch an Ed25519 wallet",
+        "",
+        "This eliminates the \"quantum gap\" where tokens sit in classical",
+        "custody between minting and vault deposit."
+      ],
+      "discriminator": [
+        197,
+        102,
+        31,
+        8,
+        93,
+        20,
+        64,
+        185
+      ],
+      "accounts": [
+        {
+          "name": "bridge_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  114,
+                  105,
+                  100,
+                  103,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "psoq_mint",
+          "writable": true
+        },
+        {
+          "name": "processed_txid",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  99,
+                  101,
+                  115,
+                  115,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "soq_txid"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_token_account",
+          "docs": [
+            "The vault's Associated Token Account — tokens go directly here,",
+            "never touching a user's Ed25519 wallet. This is the core innovation",
+            "of Patent Claim 2: Direct-Mint-to-Quantum-Vault."
+          ],
+          "writable": true
         },
         {
           "name": "payer",
@@ -498,6 +619,19 @@
       ]
     },
     {
+      "name": "DirectMintToVaultEvent",
+      "discriminator": [
+        206,
+        84,
+        154,
+        72,
+        81,
+        109,
+        55,
+        14
+      ]
+    },
+    {
       "name": "MintFromDepositEvent",
       "discriminator": [
         133,
@@ -760,13 +894,50 @@
             "type": {
               "array": [
                 "u8",
-                34
+                64
               ]
             }
           },
           {
             "name": "nonce",
             "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DirectMintToVaultEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "net_amount",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "soq_txid",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "timestamp",

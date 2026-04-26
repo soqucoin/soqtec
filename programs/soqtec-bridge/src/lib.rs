@@ -58,7 +58,7 @@ pub mod soqtec_bridge {
     pub fn burn_for_redemption(
         ctx: Context<BurnForRedemption>,
         amount: u64,
-        soq_address: [u8; 34], // Soqucoin base58check address (P2PKH)
+        soq_address: [u8; 64], // Soqucoin bech32m address (Dilithium PQC, 62 chars + 2 pad)
     ) -> Result<()> {
         let bridge = &mut ctx.accounts.bridge_state;
 
@@ -497,7 +497,7 @@ pub struct BurnForRedemptionEvent {
     pub amount: u64,
     pub net_amount: u64,
     pub fee: u64,
-    pub soq_address: [u8; 34],
+    pub soq_address: [u8; 64], // bech32m Dilithium address (62 chars + 2 pad)
     pub nonce: u64,
     pub timestamp: i64,
 }

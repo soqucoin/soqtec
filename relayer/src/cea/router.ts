@@ -179,7 +179,7 @@ export class DUAEventRouter {
     logger.info(`[DUA] 🔥 ${event.chain}: BURN → RELEASE`);
     logger.info(`  burn_tx:   ${event.burnTxId.slice(0, 24)}...`);
     logger.info(`  recipient: ${event.recipientSoq}`);
-    logger.info(`  amount:    ${Number(event.netAmountSoq) / 1e8} SOQ`);
+    logger.info(`  amount:    ${Number(event.netAmountSoq) / 1e9} SOQ`);
     logger.info(`  confidence: ${event.confidence}`);
 
     const record: ReleaseRecord = {
@@ -223,7 +223,7 @@ export class DUAEventRouter {
 
   /** Release via PAUL lane manager (sub-second) */
   private async releasePAUL(event: NormalizedBurnEvent): Promise<any> {
-    const soqAmount = Number(event.netAmountSoq) / 1e8;
+    const soqAmount = Number(event.netAmountSoq) / 1e9;
     // AbortController pattern (Node 18 — AbortSignal.timeout is buggy)
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 30000);
@@ -246,25 +246,40 @@ export class DUAEventRouter {
 
   /** Direct sendtoaddress fallback (slower, uses general wallet) */
   private async releaseDirect(event: NormalizedBurnEvent): Promise<string> {
-    const soqAmount = Number(event.netAmountSoq) / 1e8;
-    const resp = await fetch(this.config.soqucoinRpcUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Basic ' + Buffer.from(
-          `${this.config.soqucoinRpcUser}:${this.config.soqucoinRpcPass}`
-        ).toString('base64'),
-      },
-      body: JSON.stringify({
-        jsonrpc: '1.0',
-        id: Date.now(),
-        method: 'sendtoaddress',
-        params: [event.recipientSoq, soqAmount, `Bridge: ${event.chain}`, '', false],
-      }),
-    });
-    const data = await resp.json() as any;
-    if (data.error) throw new Error(data.error.message);
-    return data.result;
+    const soqAmount = Number(event.netAmountSoq) / 1e9;
+    // 120s timeout — Dilithium signing + UTXO coin selection can be slow
+    // with large mining wallets (thousands of coinbase outputs)
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 120000);
+    try {
+      const resp = await fetch(this.config.soqucoinRpcUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Basic ' + Buffer.from(
+            `${this.config.soqucoinRpcUser}:${this.config.soqucoinRpcPass}`
+          ).toString('base64'),
+        },
+        signal: ctrl.signal,
+        body: JSON.stringify({
+          jsonrpc: '1.0',
+          id: Date.now(),
+          method: 'sendtoaddress',
+          params: [event.recipientSoq, soqAmount, `DUA:${event.chain}:${event.burnTxId.slice(0, 16)}`, '', false],
+        }),
+      });
+      const text = await resp.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`RPC returned non-JSON (node overloaded?): ${text.slice(0, 200)}`);
+      }
+      if (data.error) throw new Error(`RPC sendtoaddress error: ${data.error.message}`);
+      return data.result;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** Confidence level ordering */
