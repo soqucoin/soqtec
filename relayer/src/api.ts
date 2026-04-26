@@ -15,6 +15,8 @@ import { TransferQueue } from './queue';
 import { SolanaWatcher } from './watchers/solana';
 import { SoqucoinWatcher } from './watchers/soqucoin';
 import { logger } from './utils/logger';
+import type { SolanaCEA } from './cea/solana-cea';
+import type { DUAEventRouter } from './cea/router';
 
 // Rate limit: 1 airdrop per address per 10 minutes
 const airdropCooldowns = new Map<string, number>();
@@ -238,37 +240,37 @@ export async function startApiServer(
     try {
       logger.info(`[Bridge] pSOQ→SOQ: ${amount} SOQ (net: ${netAmount}) → ${soqAddress} (from: ${solanaAddress})`);
 
-      // Release SOQ from vault to user's Dilithium wallet address
-      // Uses sendtoaddress via the existing soqucoinRpc helper
-      const response = await fetch(config.soqucoinRpc, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Basic ' + Buffer.from(
-            `${config.soqucoinRpcUser}:${config.soqucoinRpcPass}`
-          ).toString('base64'),
-        },
-        body: JSON.stringify({
-          jsonrpc: '1.0',
-          id: Date.now(),
-          method: 'sendtoaddress',
-          params: [
-            soqAddress,
-            netAmount,
-            `SOQ-TEC Bridge: pSOQ→SOQ`,
-            `From: ${solanaAddress.slice(0, 16)}...`,
-          ],
-        }),
-      });
+      let soqTxid: string;
 
-      const rpcData = await response.json() as any;
-
-      if (rpcData.error) {
-        logger.error(`[Bridge] pSOQ→SOQ RPC error: ${rpcData.error.message}`);
-        return res.status(500).json({ ok: false, error: `Bridge release failed: ${rpcData.error.message}` });
+      // Try PAUL lane release first (if DUA is enabled)
+      if (config.duaEnabled) {
+        try {
+          const paulResp = await fetch(`${config.paulEndpoint}/bridge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              burn_id: `api_bridge_${Date.now()}_${solanaAddress.slice(0, 8)}`,
+              recipient: soqAddress,
+              gross_amount: amount,
+              net_amount: netAmount,
+            }),
+          });
+          const paulData = await paulResp.json() as any;
+          if (paulData.ok) {
+            soqTxid = paulData.release_txid;
+            logger.info(`[Bridge] ⚡ PAUL release: ${soqTxid} (${paulData.elapsed_ms}ms)`);
+          } else {
+            throw new Error(paulData.error || 'PAUL unavailable');
+          }
+        } catch (paulErr: any) {
+          // PAUL failed — fall back to direct sendtoaddress
+          logger.warn(`[Bridge] PAUL unavailable (${paulErr.message}), falling back to direct send`);
+          soqTxid = await directSendToAddress(config, soqAddress, netAmount, solanaAddress);
+        }
+      } else {
+        // Legacy: direct sendtoaddress
+        soqTxid = await directSendToAddress(config, soqAddress, netAmount, solanaAddress);
       }
-
-      const soqTxid = rpcData.result;
 
       // Enqueue for activity tracking
       queue.enqueue({
@@ -384,15 +386,108 @@ export async function startApiServer(
   });
 
   // ──────────────────────────────────────────
+  // POST /api/helius/burn-events — Helius Webhook Callback
+  // ──────────────────────────────────────────
+  // Called by Helius when a BURN transaction is detected on the
+  // SOQ-TEC bridge program. Feeds into the DUA/CEA pipeline.
+  //
+  // Patent ref: SOQ-P006 §3.1 — Webhook Push Detection
+  app.post('/api/helius/burn-events', async (req, res) => {
+    const solanaCEA = (global as any).__solanaCEA as SolanaCEA | undefined;
+    if (!solanaCEA) {
+      logger.warn('[API] Helius webhook received but DUA/CEA not enabled');
+      return res.status(503).json({ ok: false, error: 'DUA not enabled' });
+    }
+
+    try {
+      const payload = Array.isArray(req.body) ? req.body : [req.body];
+      logger.info(`[API] Helius webhook: ${payload.length} event(s) received`);
+      await solanaCEA.processWebhookPayload(payload);
+      res.json({ ok: true, processed: payload.length });
+    } catch (err: any) {
+      logger.error('[API] Helius webhook error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // ──────────────────────────────────────────
+  // GET /api/dua/status — DUA Pipeline Status
+  // ──────────────────────────────────────────
+  app.get('/api/dua/status', (_req, res) => {
+    const duaRouter = (global as any).__duaRouter as DUAEventRouter | undefined;
+    if (!duaRouter) {
+      return res.json({
+        ok: true,
+        enabled: false,
+        message: 'DUA/CEA pipeline not active. Set DUA_ENABLED=true',
+      });
+    }
+
+    res.json({
+      ok: true,
+      enabled: true,
+      ...duaRouter.getStatus(),
+    });
+  });
+
+  // ──────────────────────────────────────────
+  // GET /api/dua/releases — Recent DUA Releases
+  // ──────────────────────────────────────────
+  app.get('/api/dua/releases', (req, res) => {
+    const duaRouter = (global as any).__duaRouter as DUAEventRouter | undefined;
+    if (!duaRouter) {
+      return res.json({ ok: true, releases: [] });
+    }
+
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    res.json({
+      ok: true,
+      releases: duaRouter.getRecentReleases(limit),
+    });
+  });
+
+  // ──────────────────────────────────────────
+  // POST /api/dua/halt — Emergency Circuit Breaker
+  // ──────────────────────────────────────────
+  app.post('/api/dua/halt', (req, res) => {
+    const duaRouter = (global as any).__duaRouter as DUAEventRouter | undefined;
+    if (!duaRouter) {
+      return res.status(503).json({ ok: false, error: 'DUA not enabled' });
+    }
+
+    const reason = req.body?.reason || 'Manual halt via API';
+    duaRouter.halt(reason);
+    logger.error(`[API] 🛑 DUA HALTED by API: ${reason}`);
+    res.json({ ok: true, halted: true, reason });
+  });
+
+  // ──────────────────────────────────────────
+  // POST /api/dua/resume — Resume After Investigation
+  // ──────────────────────────────────────────
+  app.post('/api/dua/resume', (_req, res) => {
+    const duaRouter = (global as any).__duaRouter as DUAEventRouter | undefined;
+    if (!duaRouter) {
+      return res.status(503).json({ ok: false, error: 'DUA not enabled' });
+    }
+
+    duaRouter.resume();
+    logger.info('[API] ✅ DUA resumed by API');
+    res.json({ ok: true, halted: false });
+  });
+
+  // ──────────────────────────────────────────
   // GET /api/health — Basic health check
   // ──────────────────────────────────────────
   app.get('/api/health', (_req, res) => {
+    const duaRouter = (global as any).__duaRouter as DUAEventRouter | undefined;
     res.json({
       ok: true,
       timestamp: new Date().toISOString(),
       services: {
         solana_watcher: solanaWatcher.isRunning(),
         soqucoin_watcher: soqucoinWatcher.isRunning(),
+        dua_pipeline: duaRouter ? true : false,
+        paul_lanes: config.duaEnabled,
         api: true,
       },
     });
@@ -405,4 +500,41 @@ export async function startApiServer(
     });
     (app as any).close = () => server.close();
   });
+}
+
+/**
+ * Direct sendtoaddress via Soqucoin RPC (fallback when PAUL is unavailable)
+ */
+async function directSendToAddress(
+  config: RelayerConfig,
+  soqAddress: string,
+  netAmount: number,
+  fromAddress: string,
+): Promise<string> {
+  const response = await fetch(config.soqucoinRpc, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Basic ' + Buffer.from(
+        `${config.soqucoinRpcUser}:${config.soqucoinRpcPass}`
+      ).toString('base64'),
+    },
+    body: JSON.stringify({
+      jsonrpc: '1.0',
+      id: Date.now(),
+      method: 'sendtoaddress',
+      params: [
+        soqAddress,
+        netAmount,
+        'SOQ-TEC Bridge: pSOQ→SOQ',
+        `From: ${fromAddress.slice(0, 16)}...`,
+      ],
+    }),
+  });
+
+  const rpcData = await response.json() as any;
+  if (rpcData.error) {
+    throw new Error(`RPC sendtoaddress error: ${rpcData.error.message}`);
+  }
+  return rpcData.result;
 }

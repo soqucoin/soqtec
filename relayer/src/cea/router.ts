@@ -234,7 +234,7 @@ export class DUAEventRouter {
         net_amount: soqAmount,
       }),
     });
-    const data = await resp.json();
+    const data = await resp.json() as any;
     if (!data.ok) throw new Error(data.error || 'PAUL release failed');
     return data;
   }

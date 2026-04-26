@@ -38,6 +38,13 @@ export interface RelayerConfig {
   // Polling intervals (ms)
   solanaPollInterval: number;
   soqucoinPollInterval: number;
+
+  // CEA/DUA — Chain Event Adapter & Dual-Usage Attestation
+  heliusApiKey: string;
+  paulEndpoint: string;
+  releasePolicy: 'mempool' | 'confirmed' | 'finalized';
+  webhookCallbackUrl: string;
+  duaEnabled: boolean;
 }
 
 export function loadConfig(): RelayerConfig {
@@ -68,5 +75,12 @@ export function loadConfig(): RelayerConfig {
     
     solanaPollInterval: parseInt(process.env.SOLANA_POLL_MS || '2000'),
     soqucoinPollInterval: parseInt(process.env.SOQUCOIN_POLL_MS || '10000'),
+
+    // CEA/DUA
+    heliusApiKey: process.env.HELIUS_API_KEY || '',
+    paulEndpoint: process.env.PAUL_ENDPOINT || 'http://localhost:3003',
+    releasePolicy: (process.env.RELEASE_POLICY as any) || 'confirmed',
+    webhookCallbackUrl: process.env.WEBHOOK_CALLBACK_URL || '',
+    duaEnabled: process.env.DUA_ENABLED === 'true',
   };
 }
