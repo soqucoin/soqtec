@@ -43,6 +43,9 @@ export interface SolanaCEAConfig {
 
   /** Poll interval in ms (fallback) */
   pollIntervalMs: number;
+
+  /** Solana network: 'devnet' | 'mainnet-beta' (affects Helius API base) */
+  network: 'devnet' | 'testnet' | 'mainnet-beta';
 }
 
 export class SolanaCEA implements ChainEventAdapter {
@@ -137,6 +140,8 @@ export class SolanaCEA implements ChainEventAdapter {
     const ref = sinceRef || this.lastSignature;
     const options: any = { limit: 20 };
     if (ref) {
+      // Solana getSignaturesForAddress: 'until' = get signatures MORE RECENT
+      // than this one (confusing naming — 'until' means 'up to this point')
       options.until = ref;
     }
 
@@ -150,13 +155,19 @@ export class SolanaCEA implements ChainEventAdapter {
         return { burns: [], nextRef: ref || '' };
       }
 
+      logger.info(`[CEA:Solana] Poll found ${sigs.length} new signature(s) since ${ref?.slice(0, 16) || 'genesis'}...`);
+
       const burns: NormalizedBurnEvent[] = [];
 
       // Process oldest first
       for (const sig of sigs.reverse()) {
+        logger.info(`[CEA:Solana] Parsing tx: ${sig.signature.slice(0, 24)}...`);
         const event = await this.parseTransaction(sig.signature);
         if (event) {
+          logger.info(`[CEA:Solana] 🔥 BURN EVENT DETECTED: ${event.netAmountSoq} → ${event.recipientSoq.slice(0, 20)}...`);
           burns.push(event);
+        } else {
+          logger.info(`[CEA:Solana] Not a burn event — skipped`);
         }
       }
 
@@ -235,11 +246,11 @@ export class SolanaCEA implements ChainEventAdapter {
       const events = this.eventParser.parseLogs(logs);
 
       for (const event of events) {
-        if (event.name === 'burnForRedemptionEvent') {
+        if (event.name === 'BurnForRedemptionEvent') {
           const data = event.data as any;
 
           // Decode SOQ address from bytes
-          const soqAddrBytes = data.soqAddress as number[];
+          const soqAddrBytes = data.soq_address as number[];
           const soqAddress = Buffer.from(soqAddrBytes)
             .toString('utf8')
             .replace(/\0/g, '');
@@ -252,7 +263,7 @@ export class SolanaCEA implements ChainEventAdapter {
             chain: 'solana',
             burnTxId: signature,
             grossAmount: BigInt(data.amount.toString()),
-            netAmountSoq: BigInt(data.netAmount.toString()),
+            netAmountSoq: BigInt(data.net_amount.toString()),
             feeAmount: BigInt(data.fee.toString()),
             recipientSoq: soqAddress,
             nonce: Number(data.nonce),
@@ -277,12 +288,18 @@ export class SolanaCEA implements ChainEventAdapter {
   /**
    * Register a Helius Enhanced Webhook to monitor the bridge program
    *
-   * Helius API: POST https://api.helius.xyz/v0/webhooks
+   * Helius API: POST https://api[-devnet].helius.xyz/v0/webhooks
    * Triggers on: token account balance decrease (burn)
    */
+  private get heliusApiBase(): string {
+    return this.config.network === 'devnet'
+      ? 'https://api-devnet.helius.xyz'
+      : 'https://api.helius.xyz';
+  }
+
   private async registerHeliusWebhook(): Promise<string> {
     const resp = await fetch(
-      `https://api.helius.xyz/v0/webhooks?api-key=${this.config.heliusApiKey}`,
+      `${this.heliusApiBase}/v0/webhooks?api-key=${this.config.heliusApiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -291,7 +308,6 @@ export class SolanaCEA implements ChainEventAdapter {
           transactionTypes: ['BURN'],
           accountAddresses: [this.config.programId],
           webhookType: 'enhanced',
-          // Enhanced webhook gives us parsed instruction data
         }),
       }
     );
@@ -308,7 +324,7 @@ export class SolanaCEA implements ChainEventAdapter {
   /** Delete a Helius webhook */
   private async deleteHeliusWebhook(webhookId: string): Promise<void> {
     await fetch(
-      `https://api.helius.xyz/v0/webhooks/${webhookId}?api-key=${this.config.heliusApiKey}`,
+      `${this.heliusApiBase}/v0/webhooks/${webhookId}?api-key=${this.config.heliusApiKey}`,
       { method: 'DELETE' }
     );
   }

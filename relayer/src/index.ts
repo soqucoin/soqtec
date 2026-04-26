@@ -77,6 +77,7 @@ async function main(): Promise<void> {
       webhookCallbackUrl: config.webhookCallbackUrl,
       idl: idl,
       pollIntervalMs: config.solanaPollInterval,
+      network: config.network === 'devnet' ? 'devnet' : 'mainnet-beta',
     });
 
     duaRouter.registerAdapter(solanaCEA);
