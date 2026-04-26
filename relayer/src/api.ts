@@ -245,9 +245,13 @@ export async function startApiServer(
       // Try PAUL lane release first (if DUA is enabled)
       if (config.duaEnabled) {
         try {
+          // AbortController pattern (Node 18 — AbortSignal.timeout is buggy)
+          const paulCtrl = new AbortController();
+          const paulTimer = setTimeout(() => paulCtrl.abort(), 30000);
           const paulResp = await fetch(`${config.paulEndpoint}/bridge`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            signal: paulCtrl.signal,
             body: JSON.stringify({
               burn_id: `api_bridge_${Date.now()}_${solanaAddress.slice(0, 8)}`,
               recipient: soqAddress,
@@ -255,6 +259,7 @@ export async function startApiServer(
               net_amount: netAmount,
             }),
           });
+          clearTimeout(paulTimer);
           const paulData = await paulResp.json() as any;
           if (paulData.ok) {
             soqTxid = paulData.release_txid;

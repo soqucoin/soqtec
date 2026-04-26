@@ -35,11 +35,11 @@ HOT_RPC_USER    = "soqucoin_hot"
 HOT_RPC_PASS    = "hot_wallet_ops_2026_secure"
 
 LANE_DENOMINATIONS = [10, 50, 100, 500, 1000, 5000, 10000]  # SOQ
-MIN_LANE_DEPTH     = 5      # UTXOs per denomination (trigger refill)
-TARGET_LANE_DEPTH  = 10     # UTXOs per denomination (refill target)
+MIN_LANE_DEPTH     = 2      # UTXOs per denomination (trigger refill)
+TARGET_LANE_DEPTH  = 3      # UTXOs per denomination (refill target)
 TX_FEE_SOQ         = 0.001  # Network fee per release TX (conservative)
 DUST_SOQ           = 0.001  # Minimum change output to bother creating
-REFILL_INTERVAL    = 60     # Seconds between refill checks
+REFILL_INTERVAL    = 120    # Seconds between refill checks (was 60)
 SYNC_INTERVAL      = 30     # Seconds between listunspent sync
 
 DB_PATH  = "/var/lib/soqtec-lane-manager/lanes.db"
@@ -75,7 +75,7 @@ def rpc(method, params=None):
         headers={"Content-Type": "application/json", "Authorization": f"Basic {auth}"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read())
     except urllib.error.HTTPError as e:
         data = json.loads(e.read())

@@ -224,9 +224,13 @@ export class DUAEventRouter {
   /** Release via PAUL lane manager (sub-second) */
   private async releasePAUL(event: NormalizedBurnEvent): Promise<any> {
     const soqAmount = Number(event.netAmountSoq) / 1e8;
+    // AbortController pattern (Node 18 — AbortSignal.timeout is buggy)
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30000);
     const resp = await fetch(`${this.config.paulEndpoint}/bridge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: ctrl.signal,
       body: JSON.stringify({
         burn_id: `${event.chain}:${event.burnTxId}`,
         recipient: event.recipientSoq,
@@ -234,6 +238,7 @@ export class DUAEventRouter {
         net_amount: soqAmount,
       }),
     });
+    clearTimeout(timer);
     const data = await resp.json() as any;
     if (!data.ok) throw new Error(data.error || 'PAUL release failed');
     return data;
