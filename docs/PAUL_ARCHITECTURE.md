@@ -1,9 +1,9 @@
 # Quantum Express — PAUL / DUA / CEA Architecture
-*Buddy / Antigravity — Apr 26, 2026 (Updated from Apr 26 brainstorm)*
+*Soqucoin Labs Inc. — April 2026*
 
-> **Status:** ✅ PAUL DEPLOYED | ✅ DUA/CEA DEPLOYED | ⏳ PAT Phase 2
+> **Status:** PAUL DEPLOYED | DUA/CEA DEPLOYED | PAT Phase 2 pending
 > **Patent:** SOQ-P006 #64/035,873 (Filed March 31, 2026) — covers PAUL/DUA/CEA embodiments
-> **VPS:** `64.23.197.144` — Relayer v0.2.0 + Lane Manager active
+> **VPS:** `143.110.229.69` (soqucoin-stagenet) — Relayer + Lane Manager active
 
 ---
 
@@ -263,7 +263,7 @@ The trust model difference is small: PAUL relies on relayer quorum (2-of-3), sam
 ### Recommended Path: PAUL + DUA/CEA ← **THIS IS LIVE**
 
 ```
-VPS 64.23.197.144
+VPS 143.110.229.69 (soqucoin-stagenet)
 ├── soqtec-relayer (v0.2.0)        port 3001
 │   ├── Legacy watchers (Solana/Soqucoin poll)
 │   ├── DUA/CEA pipeline (SolanaCEA → DUA Router)
@@ -316,7 +316,7 @@ Phase 3 (Long):  Full covenant + Solana light client proof (trustless)
 
 ## The Patent Angle (Quantum Express, #64/035,873)
 
-The innovative claim that makes QE novel vs every existing bridge:
+The central claim that distinguishes QE from existing bridge architectures:
 
 > **Claim**: A method for quantum-safe cross-chain asset transfer using pre-allocated, cryptographically-committed UTXO outputs on a hash-based-signature L1, where release funds are deterministically reserved prior to source-chain burn finalization, eliminating coin selection latency and enabling sub-second UTXO settlement.
 

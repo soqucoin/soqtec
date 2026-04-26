@@ -55,10 +55,11 @@ Solana Wallet (Ed25519, vulnerable)
 
 | Component | Technology | Status |
 |-----------|-----------|--------|
-| **Solana Bridge Program** | Anchor/Rust — SPL burn/mint, circuit breaker, PoR | 🔨 Building |
-| **Soqucoin Vault** | C++ — Dilithium multisig custody (3-of-5) | 🔨 Building |
-| **Relayer Service** | TypeScript/Node — event watchers, threshold signatures | 🔨 Building |
-| **SOQ-TEC Terminal** | HTML/CSS/JS — Pip-Boy themed bridge dashboard | ✅ Live |
+| **Solana Bridge Program** | Anchor/Rust — SPL burn/mint, circuit breaker, PoR | Deployed (devnet) |
+| **PAUL Lane Manager** | Python — Pre-Allocated UTXO Lanes for sub-second releases | Deployed |
+| **DUA/CEA Pipeline** | TypeScript/Node — Dual Unicast Adapter + Chain Event Aggregator | Deployed |
+| **Relayer Service** | TypeScript/Node — event watchers, PAUL routing | Deployed |
+| **SOQ-TEC Terminal** | HTML/CSS/JS — Pip-Boy themed operations dashboard | Deployed |
 
 ### How It Works
 
@@ -137,11 +138,10 @@ The bridge dashboard uses a Fallout Pip-Boy / Vault-Tec inspired terminal aesthe
 
 | Week | Focus |
 |------|-------|
-| **Week 1** (Apr 7–13) | ✅ Terminal dashboard, GitHub repo, Colosseum registration |
-| **Week 2** (Apr 14–20) | Solana bridge program (Anchor), relayer service, devnet deploy |
-| **Week 3** (Apr 21–27) | End-to-end demo, Winternitz integration, draft video |
-| **Week 4** (Apr 28–May 4) | Dashboard polish, security docs, final video |
-| **Buffer** (May 5–11) | Final fixes, Colosseum submission |
+| **Week 1** (Apr 7–13) | Terminal dashboard, GitHub repo, Colosseum registration |
+| **Week 2** (Apr 14–20) | Solana bridge program, relayer service, devnet deploy, E2E bridge proven |
+| **Week 3** (Apr 21–27) | PAUL/DUA/CEA pipeline, VPS migration, sub-second releases verified |
+| **Week 4** (Apr 28–May 4) | Demo recording, submission polish, final documentation |
 
 ---
 
@@ -167,10 +167,17 @@ soqtec/
 ├── index.html          # SOQ-TEC Terminal dashboard
 ├── style.css           # Pip-Boy theme + CRT effects
 ├── script.js           # Boot sequence, live data, activity feed
+├── programs/
+│   └── soqtec-bridge/  # Anchor program (Solana devnet)
+├── relayer/
+│   └── src/            # DUA/CEA pipeline + PAUL routing
+├── scripts/
+│   └── e2e-dua-burn-test.js  # End-to-end pipeline test
 ├── docs/
-│   ├── ARCHITECTURE.md # Technical architecture deep-dive
-│   ├── SECURITY.md     # Trust model & threat assumptions
-│   └── BRIDGE_SPEC.md  # Bridge protocol specification
+│   ├── ARCHITECTURE.md       # Technical architecture
+│   ├── SECURITY.md           # Trust model & threat assumptions
+│   ├── BRIDGE_SPEC.md        # Bridge protocol specification
+│   └── PAUL_ARCHITECTURE.md  # PAUL/DUA/CEA architecture
 ├── LICENSE             # MIT
 └── README.md           # This file
 ```

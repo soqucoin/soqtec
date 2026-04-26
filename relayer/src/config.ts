@@ -56,7 +56,7 @@ export function loadConfig(): RelayerConfig {
     psoqMint: process.env.PSOQ_MINT || '7TCU5SnLR7ARRAd8aUdoAFgw9zvCvzwdphm7TjUT6s46',
     solanaKeypairPath: process.env.SOLANA_KEYPAIR || '~/.config/solana/soqtec-deployer.json',
     
-    soqucoinRpc: process.env.SOQUCOIN_RPC || 'http://64.23.197.144:44555',
+    soqucoinRpc: process.env.SOQUCOIN_RPC || 'http://127.0.0.1:44557',
     soqucoinRpcUser: process.env.SOQUCOIN_RPC_USER || '',
     soqucoinRpcPass: process.env.SOQUCOIN_RPC_PASS || '',
     vaultAddress: process.env.VAULT_ADDRESS || '',
