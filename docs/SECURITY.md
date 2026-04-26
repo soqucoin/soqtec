@@ -83,7 +83,8 @@ The bridge provides a **quantum-safe custody layer** using NIST FIPS 204 ML-DSA-
 |-----------|---------|------------|
 | **L1 is slow** (~60s blocks) | Soqucoin is Dogecoin-derived, optimized for security not speed | Bridge back to Solana for speed; L2 (LatticeFold+) on roadmap |
 | **Relayer centralization** | 3-of-5 is not fully decentralized | Planned expansion to permissionless validator set |
-| **Bridge latency** | 240-block maturity = ~4 hours | Appropriate for custody transfers, not trading |
+| **Bridge latency (SOQ→Solana)** | 240-block maturity = ~4 hours for SOQ deposits to mint pSOQ | Planned mainnet mainnet safety gate; SOQ-TEC Terminal shows status |
+| **Release latency (Solana→SOQ)** | Optimistic instant release via PAUL lane manager | Sub-second on funded relayer; latency is UTXO selection, not cryptographic |
 | **Devnet demo** | Hackathon demo runs on Solana devnet | Production deployment after mainnet audit |
 | **Winternitz is limited** | Handles lamports only, single-use keys | We extend it, not replace it — bridge adds token support |
 

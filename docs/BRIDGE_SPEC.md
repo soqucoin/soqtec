@@ -80,13 +80,13 @@ User                    Solana Program           Relayer Network          Soquco
 4. **Each validator signs an attestation with their Dilithium key** (not Ed25519)
 5. **Attestation aggregator** collects 3-of-5 Dilithium signatures
 6. **Release transaction** constructed for Soqucoin L1 with 3-of-5 Dilithium multisig
-7. After **240 blocks** (~4 hours), SOQ is released to the user's Dilithium address
+7. **Optimistic instant release**: SOQ is released to the user's Dilithium address upon burn detection (Quantum Express). Relayer assumes physical burn irreversibility — no pre-release cryptographic verification required. 240-block maturity enforcement is a planned mainnet upgrade.
 
 ### Validation Rules (Per Validator)
 
 - Burn transaction must be finalized on Solana (confirmed status)
-- Amount must be ≥ 100 SOQ (minimum transfer)
-- `soq_address` must be a valid Soqucoin P2PKH address
+- Amount must be ≥ 10 SOQ (minimum transfer; configurable via `MIN_TRANSFER` env var)
+- `soq_address` must be a valid Soqucoin bech32m address
 - No duplicate burn_tx_sig in processed history (replay protection)
 - Bridge must not be paused
 - Backing ratio must remain ≥ 0.95 after release
@@ -135,8 +135,8 @@ User                    Soqucoin L1              Relayer Network          Solana
 
 ### Validation Rules (Per Validator)
 
-- Lock transaction must have 240+ confirmations
-- Amount must be ≥ 100 SOQ (minimum transfer)
+- Lock transaction must have 240+ confirmations (SOQ → Solana only; provides finality before minting pSOQ)
+- Amount must be ≥ 10 SOQ (minimum transfer; configurable via `MIN_TRANSFER` env var)
 - Memo must contain a valid Solana public key (32 bytes, base58)
 - Vault balance must cover the lock (sanity check)
 - No duplicate lock_txid in processed history
@@ -435,8 +435,8 @@ Event Detection     →  Attestation Signing  →  Verification        →  Exec
 
 | Operation | Fee | Minimum |
 |-----------|-----|---------|
-| Solana → Soqucoin | 0.1% of amount | 100 SOQ |
-| Soqucoin → Solana | 0.1% of amount | 100 SOQ |
+| Solana → Soqucoin (pSOQ burn → SOQ release) | 0.1% of amount | 10 SOQ |
+| Soqucoin → Solana (SOQ lock → pSOQ mint) | 0.1% of amount | 10 SOQ |
 | PoR attestation update | Free | — |
 
 Fees are deducted from the transfer amount. Fee distribution:
@@ -448,7 +448,8 @@ Fees are deducted from the transfer amount. Fee distribution:
 ## 11. XMSS-Lite Revolving Vault (Quantum-Safe SPL Custody)
 
 > **Full design specification:** `soqucoin-ops/design-log/DL-SOQTEC-REVOLVING-VAULT.md`
-> **Status:** Patent review — implementation pending IP filing
+> **Patent:** Filed — Provisional #64/035,857 (XMSS-Lite Revolving Vault)
+> **Status:** Anchor program implemented (`programs/xmss-vault/`); proven on Solana devnet
 
 ### Problem
 
@@ -508,7 +509,7 @@ Ed25519 touches the VALUE: never.
 - Merkle commitment scheme for Solana-side verification
 
 ### Post-Hackathon (v1.1)
-- XMSS-Lite Revolving Vault program (pending patent filing)
+- XMSS-Lite Revolving Vault program (Patent #64/035,857 filed; mainnet deployment after L1 launch)
 - Solana mainnet deployment
 - Permissionless validator onboarding (stake + Dilithium key registration)
 - Dilithium BPF verifier on Solana (eliminates Merkle root pre-registration)
