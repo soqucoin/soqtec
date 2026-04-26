@@ -224,9 +224,10 @@ export class DUAEventRouter {
   /** Release via PAUL lane manager (sub-second) */
   private async releasePAUL(event: NormalizedBurnEvent): Promise<any> {
     const soqAmount = Number(event.netAmountSoq) / 1e9;
-    // AbortController pattern (Node 18 — AbortSignal.timeout is buggy)
+    // 60s timeout — signer mutex serializes requests, so we may wait
+    // for a prior signing (heartbeat or refill) to complete before ours starts
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 30000);
+    const timer = setTimeout(() => ctrl.abort(), 60000);
     const resp = await fetch(`${this.config.paulEndpoint}/bridge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
