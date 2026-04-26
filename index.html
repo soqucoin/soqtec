@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SOQ-TEC Terminal v1.0 | Quantum-Tolerant Ecosystem Custody</title>
-    <meta name="description" content="SOQ-TEC: Soqucoin Operations for Quantum-Tolerant Ecosystem Custody. The first quantum-safe cross-chain bridge for the Solana ecosystem. Prepared for the Quantum Future.">
+    <title>SOQ-TEC Terminal v1.4 | Quantum-Tolerant Ecosystem Custody</title>
+    <meta name="description" content="SOQ-TEC: Soqucoin Operations for Quantum-Tolerant Ecosystem Custody. The first quantum-safe cross-chain gateway with XMSS-Lite revolving vaults and Quantum Express optimistic routing. Prepared for the Quantum Future.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -31,7 +31,7 @@
             <div class="header-left">
                 <div class="header-icon">◆</div>
                 <span class="header-title">SOQ-TEC TERMINAL</span>
-                <span class="header-version">v1.0.0</span>
+                <span class="header-version">v1.4.0</span>
             </div>
             <div class="header-center">
                 <span class="header-status" id="system-status">●</span>
@@ -39,309 +39,506 @@
             </div>
             <div class="header-right">
                 <span class="header-time" id="header-time">00:00:00</span>
-                <span class="header-date" id="header-date">APR 07 2026</span>
+                <span class="header-date" id="header-date">APR 25 2026</span>
             </div>
         </header>
+
+        <!-- ═══════════════════════════════════════════════════
+             LAYER 1 — THE HOOK (Always Visible)
+             Primary vital signs. Brightest phosphor. Bloom.
+             ═══════════════════════════════════════════════════ -->
+        <section class="primary-status">
+            <div class="vital vital--peg">
+                <div class="vital__bracket vital__bracket--tl"></div>
+                <div class="vital__bracket vital__bracket--tr"></div>
+                <div class="vital__bracket vital__bracket--bl"></div>
+                <div class="vital__bracket vital__bracket--br"></div>
+                <div class="vital__label">USDSOQ PEG</div>
+                <div class="vital__value vital__value--bloom" id="hero-peg">$1.0000</div>
+                <div class="vital__badge vital__badge--online" id="hero-peg-status">ON-PEG</div>
+            </div>
+            <div class="vital vital--bridge">
+                <div class="vital__bracket vital__bracket--tl"></div>
+                <div class="vital__bracket vital__bracket--tr"></div>
+                <div class="vital__bracket vital__bracket--bl"></div>
+                <div class="vital__bracket vital__bracket--br"></div>
+                <div class="vital__label">GATEWAY STATUS</div>
+                <div class="vital__value vital__value--bloom" id="hero-bridge">OPERATIONAL</div>
+                <div class="vital__badge vital__badge--online" id="hero-bridge-status">● RELAY <span id="hero-relay-state">STANDBY</span></div>
+            </div>
+            <div class="vital vital--vault">
+                <div class="vital__bracket vital__bracket--tl"></div>
+                <div class="vital__bracket vital__bracket--tr"></div>
+                <div class="vital__bracket vital__bracket--bl"></div>
+                <div class="vital__bracket vital__bracket--br"></div>
+                <div class="vital__label">VAULT BALANCE</div>
+                <div class="vital__value vital__value--bloom" id="hero-vault">0.00 SOQ</div>
+                <div class="vital__badge vital__badge--online">DILITHIUM</div>
+            </div>
+            <div class="vital vital--block">
+                <div class="vital__bracket vital__bracket--tl"></div>
+                <div class="vital__bracket vital__bracket--tr"></div>
+                <div class="vital__bracket vital__bracket--bl"></div>
+                <div class="vital__bracket vital__bracket--br"></div>
+                <div class="vital__label">L1 BLOCK</div>
+                <div class="vital__value vital__value--bloom" id="hero-block">—</div>
+                <div class="vital__badge vital__badge--online">PQ-NATIVE</div>
+            </div>
+            <div class="vital vital--threat">
+                <div class="vital__bracket vital__bracket--tl"></div>
+                <div class="vital__bracket vital__bracket--tr"></div>
+                <div class="vital__bracket vital__bracket--bl"></div>
+                <div class="vital__bracket vital__bracket--br"></div>
+                <div class="vital__label">THREAT LEVEL</div>
+                <div class="vital__value vital__value--amber" id="hero-threat">ELEVATED</div>
+                <div class="vital__bars">
+                    <span class="vital__bar vital__bar--active"></span>
+                    <span class="vital__bar vital__bar--active"></span>
+                    <span class="vital__bar vital__bar--active"></span>
+                    <span class="vital__bar vital__bar--active"></span>
+                    <span class="vital__bar"></span>
+                </div>
+            </div>
+        </section>
 
         <!-- Pip-Boy Tab Navigation -->
         <nav class="pip-tabs">
             <button class="pip-tab active" data-tab="stat">STAT</button>
-            <button class="pip-tab" data-tab="data" onclick="window.open('https://github.com/soqucoin/soqtec','_blank')">DATA</button>
-            <button class="pip-tab" data-tab="bridge">BRIDGE</button>
-            <button class="pip-tab" data-tab="map">MAP</button>
-            <button class="pip-tab" data-tab="inv">RESERVES</button>
+            <button class="pip-tab" data-tab="data">DATA</button>
+            <button class="pip-tab" data-tab="gateway">GATEWAY</button>
+            <button class="pip-tab" data-tab="reserves">RESERVES</button>
         </nav>
 
-        <!-- SOQ-TEC Logo Section -->
-        <section class="logo-section">
-            <div class="logo-main">SOQ-TEC</div>
-            <div class="logo-subtitle">SOQUCOIN OPERATIONS FOR QUANTUM-TOLERANT ECOSYSTEM CUSTODY</div>
-            <div class="logo-tagline">" Prepared for the Quantum Future "</div>
-            <div class="logo-vault-number">── VAULT V1 ──</div>
-        </section>
+        <!-- ═══════════════════════════════════════════════════
+             TAB: STAT — Vault + Network Status
+             ═══════════════════════════════════════════════════ -->
+        <div class="tab-content active" data-tab-content="stat">
 
-        <!-- Threat Level Banner -->
-        <section class="threat-banner">
-            <div class="threat-label">QUANTUM THREAT LEVEL</div>
-            <div class="threat-level" id="threat-level">
-                <span class="threat-bar active"></span>
-                <span class="threat-bar active"></span>
-                <span class="threat-bar active"></span>
-                <span class="threat-bar active"></span>
-                <span class="threat-bar"></span>
-            </div>
-            <div class="threat-status">ELEVATED — HNDL ATTACKS IN PROGRESS</div>
-        </section>
-
-        <!-- Main Dashboard Grid -->
-        <main class="dashboard-grid">
-            <!-- Vault Status Panel -->
-            <div class="panel vault-panel">
-                <div class="panel-header">
-                    <span class="panel-icon">◈</span>
-                    <span class="panel-title">SOQ-TEC VAULT STATUS</span>
-                    <span class="panel-status online">ONLINE</span>
-                </div>
-                <div class="panel-body">
-                    <div class="stat-row">
-                        <span class="stat-label">VAULT BALANCE</span>
-                        <span class="stat-value" id="vault-balance">0.00 SOQ</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">BACKING RATIO</span>
-                        <span class="stat-value highlight" id="backing-ratio">1:1</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">TOTAL BRIDGED</span>
-                        <span class="stat-value" id="total-bridged">0 SOQ</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">VAULT SIGNATURE</span>
-                        <span class="stat-value small">ML-DSA-44 (FIPS 204)</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">PROTECTION</span>
-                        <span class="stat-value highlight">◆ DILITHIUM ACTIVE</span>
-                    </div>
-                    <div class="vault-visual">
-                        <div class="vault-bar-container">
-                            <div class="vault-bar-fill" id="vault-bar" style="width: 0%"></div>
-                        </div>
-                        <span class="vault-bar-label">VAULT CAPACITY</span>
+            <!-- SOQ-TEC Brand Identity -->
+            <section class="brand-section">
+                <div class="brand-rule"></div>
+                <div class="brand-core">
+                    <div class="brand-name">SOQ-TEC</div>
+                    <div class="brand-meta">
+                        <span class="brand-badge">QUANTUM-TOLERANT</span>
+                        <span class="brand-sep">|</span>
+                        <span class="brand-desc">Ecosystem Custody</span>
+                        <span class="brand-sep">|</span>
+                        <span class="brand-vault">XMSS-Lite Revolving Vault</span>
                     </div>
                 </div>
-            </div>
+                <div class="brand-rule"></div>
+            </section>
 
-            <!-- Network Status Panel -->
-            <div class="panel network-panel">
-                <div class="panel-header">
-                    <span class="panel-icon">◇</span>
-                    <span class="panel-title">NETWORK STATUS</span>
-                    <span class="panel-status online">SYNCED</span>
-                </div>
-                <div class="panel-body">
-                    <div class="network-col">
-                        <div class="network-label">── SOQUCOIN L1 ──</div>
+            <main class="dashboard-grid">
+                <!-- Vault Status Panel -->
+                <div class="panel panel--bracketed vault-panel">
+                    <div class="bracket bracket--tl"></div>
+                    <div class="bracket bracket--tr"></div>
+                    <div class="bracket bracket--bl"></div>
+                    <div class="bracket bracket--br"></div>
+                    <div class="panel-header">
+                        <span class="panel-icon">◈</span>
+                        <span class="panel-title">SOQ-TEC VAULT STATUS</span>
+                        <span class="panel-status online">ONLINE</span>
+                    </div>
+                    <div class="panel-body">
                         <div class="stat-row">
-                            <span class="stat-label">BLOCK HEIGHT</span>
-                            <span class="stat-value" id="soq-block">LOADING...</span>
+                            <span class="stat-label">VAULT BALANCE</span>
+                            <span class="stat-value layer1" id="vault-balance">0.00 SOQ</span>
                         </div>
                         <div class="stat-row">
-                            <span class="stat-label">HASH ALGO</span>
-                            <span class="stat-value small">AuxPoW + Dilithium</span>
+                            <span class="stat-label">BACKING RATIO</span>
+                            <span class="stat-value layer1" id="backing-ratio">1:1</span>
                         </div>
                         <div class="stat-row">
-                            <span class="stat-label">BLOCK TIME</span>
-                            <span class="stat-value">~60s</span>
+                            <span class="stat-label">TOTAL BRIDGED</span>
+                            <span class="stat-value layer1" id="total-bridged">0 SOQ</span>
                         </div>
                         <div class="stat-row">
-                            <span class="stat-label">STATUS</span>
-                            <span class="stat-value highlight">◆ PQ-NATIVE</span>
+                            <span class="stat-label">VAULT SIGNATURE</span>
+                            <span class="stat-value layer3">ML-DSA-44 (FIPS 204)</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">VAULT TYPE</span>
+                            <span class="stat-value layer3">XMSS-Lite (1,024 sigs/vault)</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">PROTECTION</span>
+                            <span class="stat-value layer1">◆ DILITHIUM ACTIVE</span>
+                        </div>
+                        <div class="vault-visual">
+                            <div class="vault-bar-container">
+                                <div class="vault-bar-fill" id="vault-bar" style="width: 0%"></div>
+                            </div>
+                            <span class="vault-bar-label">VAULT CAPACITY</span>
                         </div>
                     </div>
-                    <div class="network-divider"></div>
-                    <div class="network-col">
-                        <div class="network-label">── SOLANA ──</div>
+                </div>
+
+                <!-- Network Status Panel -->
+                <div class="panel panel--bracketed network-panel">
+                    <div class="bracket bracket--tl"></div>
+                    <div class="bracket bracket--tr"></div>
+                    <div class="bracket bracket--bl"></div>
+                    <div class="bracket bracket--br"></div>
+                    <div class="panel-header">
+                        <span class="panel-icon">◇</span>
+                        <span class="panel-title">NETWORK STATUS</span>
+                        <span class="panel-status online">SYNCED</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="network-col">
+                            <div class="network-label">── SOQUCOIN L1 ──</div>
+                            <div class="stat-row">
+                                <span class="stat-label">BLOCK HEIGHT</span>
+                                <span class="stat-value layer1" id="soq-block">LOADING...</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">HASH ALGO</span>
+                                <span class="stat-value layer3">AuxPoW + Dilithium</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">BLOCK TIME</span>
+                                <span class="stat-value layer2">~60s</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">STATUS</span>
+                                <span class="stat-value layer1">◆ PQ-NATIVE</span>
+                            </div>
+                        </div>
+                        <div class="network-divider"></div>
+                        <div class="network-col">
+                            <div class="network-label">── SOLANA ──</div>
+                            <div class="stat-row">
+                                <span class="stat-label">SLOT</span>
+                                <span class="stat-value layer1" id="sol-slot">LOADING...</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">SIGNATURE</span>
+                                <span class="stat-value warn">Ed25519 (VULNERABLE)</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">SLOT TIME</span>
+                                <span class="stat-value layer2">~400ms</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">STATUS</span>
+                                <span class="stat-value warn">⚠ QUANTUM EXPOSED</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════
+             TAB: DATA — Recent Blocks + Security Overview
+             ═══════════════════════════════════════════════════ -->
+        <div class="tab-content" data-tab-content="data">
+            <main class="dashboard-grid">
+                <!-- Recent Blocks Panel -->
+                <div class="panel panel--bracketed blocks-panel">
+                    <div class="bracket bracket--tl"></div>
+                    <div class="bracket bracket--tr"></div>
+                    <div class="bracket bracket--bl"></div>
+                    <div class="bracket bracket--br"></div>
+                    <div class="panel-header">
+                        <span class="panel-icon">◆</span>
+                        <span class="panel-title">RECENT L1 BLOCKS</span>
+                        <span class="panel-status online" id="blocks-status">LIVE</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="blocks-table">
+                            <div class="blocks-header">
+                                <span class="col-height">HEIGHT</span>
+                                <span class="col-hash">BLOCK HASH</span>
+                                <span class="col-time">TIME</span>
+                                <span class="col-txns">TXN</span>
+                                <span class="col-diff">DIFFICULTY</span>
+                            </div>
+                            <div id="blocks-rows" class="blocks-rows">
+                                <div class="block-row loading">Loading blocks from L1...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Security Overview Panel -->
+                <div class="panel panel--bracketed security-panel">
+                    <div class="bracket bracket--tl"></div>
+                    <div class="bracket bracket--tr"></div>
+                    <div class="bracket bracket--bl"></div>
+                    <div class="bracket bracket--br"></div>
+                    <div class="panel-header">
+                        <span class="panel-icon">◇</span>
+                        <span class="panel-title">SECURITY OVERVIEW</span>
+                        <span class="panel-status online">HARDENED</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="security-grid">
+                            <div class="security-item active">
+                                <div class="security-icon">✓</div>
+                                <div class="security-text">Halborn Audit</div>
+                                <div class="security-detail">6/6 Remediated</div>
+                            </div>
+                            <div class="security-item active">
+                                <div class="security-icon">✓</div>
+                                <div class="security-text">NIST FIPS 204</div>
+                                <div class="security-detail">ML-DSA-44</div>
+                            </div>
+                            <div class="security-item active">
+                                <div class="security-icon">✓</div>
+                                <div class="security-text">Patent Filed</div>
+                                <div class="security-detail">#63/999,796</div>
+                            </div>
+                            <div class="security-item active">
+                                <div class="security-icon">✓</div>
+                                <div class="security-text">AuxPoW Consensus</div>
+                                <div class="security-detail">Scrypt + Dilithium</div>
+                            </div>
+                            <div class="security-item active">
+                                <div class="security-icon">✓</div>
+                                <div class="security-text">Bridge Escrow</div>
+                                <div class="security-detail">Devnet LIVE</div>
+                            </div>
+                            <div class="security-item active">
+                                <div class="security-icon">✓</div>
+                                <div class="security-text">Relayer Network</div>
+                                <div class="security-detail">OPERATIONAL</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════
+             TAB: GATEWAY — Activity Log + Quantum Express + PAUL
+             ═══════════════════════════════════════════════════ -->
+        <div class="tab-content" data-tab-content="gateway">
+            <main class="dashboard-grid">
+                <!-- Bridge Activity Panel -->
+                <div class="panel panel--bracketed activity-panel">
+                    <div class="bracket bracket--tl"></div>
+                    <div class="bracket bracket--tr"></div>
+                    <div class="bracket bracket--bl"></div>
+                    <div class="bracket bracket--br"></div>
+                    <div class="panel-header">
+                        <span class="panel-icon">◆</span>
+                        <span class="panel-title">GATEWAY ACTIVITY LOG</span>
+                        <span class="panel-status" id="relay-status">CONNECTING...</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="activity-log" id="activity-log">
+                            <div class="log-entry system">[SYSTEM] SOQ-TEC Gateway v1.4 initializing...</div>
+                            <div class="log-entry system">[SYSTEM] Gateway Program: 9pCJxj...w36 — DEPLOYED</div>
+                            <div class="log-entry system">[SYSTEM] Connecting to relayer service...</div>
+                            <div class="log-entry info">[INFO] Solana devnet: gateway program LIVE</div>
+                            <div class="log-entry info">[INFO] Soqucoin stagenet: synced at block 51,000+</div>
+                            <div class="log-entry highlight">[SOQ-TEC] DUA/CEA pipeline: ACTIVE</div>
+                            <div class="log-entry highlight">[SOQ-TEC] PAUL Lane Manager: OPERATIONAL</div>
+                            <div class="log-entry highlight">[SOQ-TEC] Gateway Relayer: soqtec-relay.soqu.org LIVE</div>
+                            <div class="log-entry highlight">[SOQ-TEC] Gateway: 2-of-3 threshold signing READY</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quantum Express — Bridge Flow -->
+                <div class="panel panel--bracketed" id="bridge-flow-panel">
+                    <div class="bracket bracket--tl"></div>
+                    <div class="bracket bracket--tr"></div>
+                    <div class="bracket bracket--bl"></div>
+                    <div class="bracket bracket--br"></div>
+                    <div class="panel-header">
+                        <span class="panel-icon">◆</span>
+                        <span class="panel-title">QUANTUM EXPRESS</span>
+                        <span class="panel-status" id="flow-status">MONITORING</span>
+                    </div>
+                    <div class="panel-body qe-body">
+                        <!-- Bridge Flow Visualization -->
+                        <div class="qe-flow">
+                            <div class="qe-node" id="pn-psoq">
+                                <div class="qe-node-ring"><div class="qe-node-core"></div></div>
+                                <div class="qe-node-name">pSOQ</div>
+                                <div class="qe-node-sub">Solana</div>
+                            </div>
+                            <div class="qe-connector"><div class="qe-connector-pulse"></div></div>
+                            <div class="qe-node" id="pn-vault">
+                                <div class="qe-node-ring"><div class="qe-node-core"></div></div>
+                                <div class="qe-node-name">XMSS Vault</div>
+                                <div class="qe-node-sub">WOTS+</div>
+                            </div>
+                            <div class="qe-connector"><div class="qe-connector-pulse"></div></div>
+                            <div class="qe-node" id="pn-escrow">
+                                <div class="qe-node-ring"><div class="qe-node-core qe-core--burn"></div></div>
+                                <div class="qe-node-name">Burn</div>
+                                <div class="qe-node-sub">CPI</div>
+                            </div>
+                            <div class="qe-connector qe-connector--wide"><div class="qe-connector-pulse"></div></div>
+                            <div class="qe-relay" id="pn-relay">
+                                <div class="qe-relay-diamond">◆</div>
+                                <div class="qe-relay-label">RELAY</div>
+                                <div class="qe-relay-amount" id="qe-live-amount"></div>
+                            </div>
+                            <div class="qe-connector qe-connector--wide"><div class="qe-connector-pulse"></div></div>
+                            <div class="qe-node" id="pn-l1">
+                                <div class="qe-node-ring"><div class="qe-node-core"></div></div>
+                                <div class="qe-node-name">L1 Vault</div>
+                                <div class="qe-node-sub">Dilithium</div>
+                            </div>
+                            <div class="qe-connector"><div class="qe-connector-pulse"></div></div>
+                            <div class="qe-node" id="pn-soq">
+                                <div class="qe-node-ring"><div class="qe-node-core qe-core--pq"></div></div>
+                                <div class="qe-node-name">SOQ</div>
+                                <div class="qe-node-sub">PQ-Native</div>
+                            </div>
+                        </div>
+                        <!-- Stats Bar -->
+                        <div class="qe-stats">
+                            <div class="qe-stat">
+                                <span class="qe-stat-label">LAST TRANSFER</span>
+                                <span class="qe-stat-value" id="qe-last-transfer">—</span>
+                            </div>
+                            <div class="qe-stat">
+                                <span class="qe-stat-label">24H VOLUME</span>
+                                <span class="qe-stat-value" id="qe-24h-volume">—</span>
+                            </div>
+                            <div class="qe-stat">
+                                <span class="qe-stat-label">NEXT PULSE</span>
+                                <span class="qe-stat-value" id="qe-countdown">~90s</span>
+                            </div>
+                            <div class="qe-stat">
+                                <span class="qe-stat-label">STATUS</span>
+                                <span class="qe-stat-value qe-stat--live" id="qe-pipe-status">● LIVE</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════
+             TAB: RESERVES — Proof of Reserves + USDSOQ
+             ═══════════════════════════════════════════════════ -->
+        <div class="tab-content" data-tab-content="reserves">
+            <main class="dashboard-grid">
+                <!-- USDSOQ Stablecoin Panel (Hero) -->
+                <div class="panel panel--bracketed usdsoq-panel">
+                    <div class="bracket bracket--tl"></div>
+                    <div class="bracket bracket--tr"></div>
+                    <div class="bracket bracket--bl"></div>
+                    <div class="bracket bracket--br"></div>
+                    <div class="panel-header">
+                        <span class="panel-icon">◈</span>
+                        <span class="panel-title">USDSOQ STABLECOIN</span>
+                        <span class="panel-status online" id="usdsoq-status">ON-PEG</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="usdsoq-peg-display">
+                            <div class="peg-rate">
+                                <span class="peg-symbol">$</span>
+                                <span class="peg-value" id="usdsoq-peg">1.0000</span>
+                            </div>
+                            <div class="peg-label">USD PEG RATE</div>
+                        </div>
                         <div class="stat-row">
-                            <span class="stat-label">SLOT</span>
-                            <span class="stat-value" id="sol-slot">LOADING...</span>
+                            <span class="stat-label">CIRCULATING SUPPLY</span>
+                            <span class="stat-value layer1" id="usdsoq-supply">0 USDSOQ</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">TOTAL MINTED</span>
+                            <span class="stat-value layer1" id="usdsoq-minted">0 USDSOQ</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">TOTAL BURNED</span>
+                            <span class="stat-value layer1" id="usdsoq-burned">0 USDSOQ</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">BACKING RATIO</span>
+                            <span class="stat-value layer1" id="usdsoq-backing">1.00:1</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">GOVERNANCE</span>
+                            <span class="stat-value layer2" id="usdsoq-signers">4/7 SIGNERS</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">COLLATERAL</span>
+                            <span class="stat-value layer3">SOQ-Backed (Native L1)</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">COMPLIANCE</span>
+                            <span class="stat-value layer3">GENIUS Act · MiCA · NYDFS</span>
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">SIGNATURE</span>
-                            <span class="stat-value small warn">Ed25519 (VULNERABLE)</span>
+                            <span class="stat-value layer3">ML-DSA-44 (FIPS 204)</span>
                         </div>
-                        <div class="stat-row">
-                            <span class="stat-label">SLOT TIME</span>
-                            <span class="stat-value">~400ms</span>
+                        <div class="usdsoq-badge">
+                            <span class="badge-icon">◆</span>
+                            <span class="badge-text">GENIUS ACT COMPLIANT · QUANTUM-SAFE STABLECOIN</span>
                         </div>
-                        <div class="stat-row">
-                            <span class="stat-label">STATUS</span>
-                            <span class="stat-value warn">⚠ QUANTUM EXPOSED</span>
+                        <div class="usdsoq-ops" id="usdsoq-ops">
+                            <div class="ops-header">RECENT OPERATIONS</div>
+                            <div class="ops-empty">No operations yet — awaiting mainnet</div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Bridge Activity Panel -->
-            <div class="panel activity-panel">
-                <div class="panel-header">
-                    <span class="panel-icon">◆</span>
-                    <span class="panel-title">BRIDGE ACTIVITY LOG</span>
-                    <span class="panel-status" id="relay-status">RELAY STANDBY</span>
-                </div>
-                <div class="panel-body">
-                    <div class="activity-log" id="activity-log">
-                        <div class="log-entry system">[SYSTEM] SOQ-TEC Bridge Protocol initializing...</div>
-                        <div class="log-entry system">[SYSTEM] Relayer nodes: 0/5 connected</div>
-                        <div class="log-entry system">[SYSTEM] Awaiting bridge activation...</div>
-                        <div class="log-entry info">[INFO] Bridge program deployment: PENDING</div>
-                        <div class="log-entry info">[INFO] Solana devnet escrow: NOT DEPLOYED</div>
-                        <div class="log-entry warn">[WARN] Bridge is in PRE-LAUNCH mode</div>
-                        <div class="log-entry highlight">[SOQ-TEC] Vault custody: ML-DSA-44 Dilithium READY</div>
-                        <div class="log-entry highlight">[SOQ-TEC] Soqucoin Testnet3: OPERATIONAL</div>
+                <!-- Proof of Reserves Panel -->
+                <div class="panel panel--bracketed reserves-panel">
+                    <div class="bracket bracket--tl"></div>
+                    <div class="bracket bracket--tr"></div>
+                    <div class="bracket bracket--bl"></div>
+                    <div class="bracket bracket--br"></div>
+                    <div class="panel-header">
+                        <span class="panel-icon">◈</span>
+                        <span class="panel-title">PROOF OF RESERVES</span>
+                        <span class="panel-status online" id="reserves-status">LIVE</span>
                     </div>
-                </div>
-            </div>
-
-            <!-- Proof of Reserves Panel -->
-            <div class="panel reserves-panel">
-                <div class="panel-header">
-                    <span class="panel-icon">◈</span>
-                    <span class="panel-title">PROOF OF RESERVES</span>
-                    <span class="panel-status">ATTESTATION</span>
-                </div>
-                <div class="panel-body">
-                    <div class="reserves-visual">
-                        <div class="reserve-row">
-                            <span class="reserve-label">SOQ LOCKED (L1)</span>
-                            <div class="reserve-bar-container">
-                                <div class="reserve-bar soq" id="soq-reserve-bar" style="width: 0%"></div>
+                    <div class="panel-body">
+                        <div class="reserves-visual">
+                            <div class="reserve-row">
+                                <span class="reserve-label">SOQ LOCKED (L1)</span>
+                                <div class="reserve-bar-container">
+                                    <div class="reserve-bar soq" id="soq-reserve-bar" style="width: 0%"></div>
+                                </div>
+                                <span class="reserve-value" id="soq-reserve">0 SOQ</span>
                             </div>
-                            <span class="reserve-value" id="soq-reserve">0 SOQ</span>
-                        </div>
-                        <div class="reserve-row">
-                            <span class="reserve-label">pSOQ MINTED (SOL)</span>
-                            <div class="reserve-bar-container">
-                                <div class="reserve-bar psoq" id="psoq-reserve-bar" style="width: 0%"></div>
-                            </div>
-                            <span class="reserve-value" id="psoq-reserve">0 pSOQ</span>
-                        </div>
-                    </div>
-                    <div class="reserve-attestation">
-                        <div class="stat-row">
-                            <span class="stat-label">LAST ATTESTATION</span>
-                            <span class="stat-value small" id="last-attestation">AWAITING LAUNCH</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">ATTESTATION SIG</span>
-                            <span class="stat-value small">Dilithium-3 (NIST FIPS 204)</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">VALIDATOR QUORUM</span>
-                            <span class="stat-value">3-of-5 MULTISIG</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Security Overview Panel -->
-            <div class="panel security-panel">
-                <div class="panel-header">
-                    <span class="panel-icon">◇</span>
-                    <span class="panel-title">SECURITY OVERVIEW</span>
-                    <span class="panel-status online">HARDENED</span>
-                </div>
-                <div class="panel-body">
-                    <div class="security-grid">
-                        <div class="security-item active">
-                            <div class="security-icon">✓</div>
-                            <div class="security-text">Halborn Audit</div>
-                            <div class="security-detail">6/6 Remediated</div>
-                        </div>
-                        <div class="security-item active">
-                            <div class="security-icon">✓</div>
-                            <div class="security-text">NIST FIPS 204</div>
-                            <div class="security-detail">ML-DSA-44</div>
-                        </div>
-                        <div class="security-item active">
-                            <div class="security-icon">✓</div>
-                            <div class="security-text">Patent Filed</div>
-                            <div class="security-detail">#63/999,796</div>
-                        </div>
-                        <div class="security-item active">
-                            <div class="security-icon">✓</div>
-                            <div class="security-text">AuxPoW Consensus</div>
-                            <div class="security-detail">Scrypt + Dilithium</div>
-                        </div>
-                        <div class="security-item pending">
-                            <div class="security-icon">◌</div>
-                            <div class="security-text">Bridge Escrow</div>
-                            <div class="security-detail">In Development</div>
-                        </div>
-                        <div class="security-item pending">
-                            <div class="security-icon">◌</div>
-                            <div class="security-text">Relayer Network</div>
-                            <div class="security-detail">In Development</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Bridge Flow Panel -->
-            <div class="panel flow-panel">
-                <div class="panel-header">
-                    <span class="panel-icon">◆</span>
-                    <span class="panel-title">SOQ-TEC BRIDGE FLOW</span>
-                    <span class="panel-status">ARCHITECTURE</span>
-                </div>
-                <div class="panel-body">
-                    <div class="flow-visual">
-                        <div class="flow-chain flow-solana">
-                            <div class="flow-chain-title">⚠ SOLANA (Ed25519)</div>
-                            <div class="flow-chain-subtitle">QUANTUM EXPOSED</div>
-                            <div class="flow-steps">
-                                <div class="flow-step">
-                                    <div class="flow-step-icon">○</div>
-                                    <div class="flow-step-text">Winternitz Vault<br><span class="flow-detail">WOTS hash-based PQ</span></div>
+                            <div class="reserve-row">
+                                <span class="reserve-label">pSOQ MINTED (SOL)</span>
+                                <div class="reserve-bar-container">
+                                    <div class="reserve-bar psoq" id="psoq-reserve-bar" style="width: 0%"></div>
                                 </div>
-                                <div class="flow-arrow">↓</div>
-                                <div class="flow-step">
-                                    <div class="flow-step-icon">○</div>
-                                    <div class="flow-step-text">Bridge Escrow PDA<br><span class="flow-detail">Lock + burn pSOQ</span></div>
-                                </div>
-                                <div class="flow-arrow">↓</div>
-                                <div class="flow-step">
-                                    <div class="flow-step-icon">○</div>
-                                    <div class="flow-step-text">pSOQ (SPL Token)<br><span class="flow-detail">Burn / Mint authority</span></div>
-                                </div>
+                                <span class="reserve-value" id="psoq-reserve">0 pSOQ</span>
                             </div>
                         </div>
-                        <div class="flow-bridge">
-                            <div class="flow-bridge-line"></div>
-                            <div class="flow-bridge-box">
-                                <div class="flow-bridge-title">SOQ-TEC</div>
-                                <div class="flow-bridge-sub">RELAYER</div>
-                                <div class="flow-bridge-detail">Attestation Engine</div>
+                        <div class="reserve-attestation">
+                            <div class="stat-row">
+                                <span class="stat-label">LAST ATTESTATION</span>
+                                <span class="stat-value layer2" id="last-attestation">AWAITING LAUNCH</span>
                             </div>
-                            <div class="flow-bridge-arrows">
-                                <span>← verify</span>
-                                <span>release →</span>
+                            <div class="stat-row">
+                                <span class="stat-label">ATTESTATION SIG</span>
+                                <span class="stat-value layer3">Dilithium-3 (NIST FIPS 204)</span>
                             </div>
-                            <div class="flow-bridge-line"></div>
-                        </div>
-                        <div class="flow-chain flow-soqucoin">
-                            <div class="flow-chain-title">◆ SOQUCOIN L1 (Dilithium)</div>
-                            <div class="flow-chain-subtitle">PQ-NATIVE</div>
-                            <div class="flow-steps">
-                                <div class="flow-step">
-                                    <div class="flow-step-icon">◆</div>
-                                    <div class="flow-step-text">SOQ-TEC Vault<br><span class="flow-detail">ML-DSA-44 custody</span></div>
-                                </div>
-                                <div class="flow-arrow">↓</div>
-                                <div class="flow-step">
-                                    <div class="flow-step-icon">◆</div>
-                                    <div class="flow-step-text">Native SOQ<br><span class="flow-detail">Reusable PQ address</span></div>
-                                </div>
-                                <div class="flow-arrow">↓</div>
-                                <div class="flow-step">
-                                    <div class="flow-step-icon">◆</div>
-                                    <div class="flow-step-text">PQ Custody<br><span class="flow-detail">Dilithium + Halborn audited</span></div>
-                                </div>
+                            <div class="stat-row">
+                                <span class="stat-label">VALIDATOR QUORUM</span>
+                                <span class="stat-value layer2">2-of-3 MULTISIG</span>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </main>
+            </main>
+        </div>
 
         <!-- Footer -->
         <footer class="terminal-footer">
             <div class="footer-left">
-                <span class="footer-item">SOQ-TEC v1.0.0 | Soqucoin Labs Inc.</span>
+                <span class="footer-item">SOQ-TEC v1.4.0 | Soqucoin Labs Inc.</span>
             </div>
             <div class="footer-center">
                 <span class="footer-item">◆ COLOSSEUM FRONTIER HACKATHON 2026 ◆</span>
-                <a href="https://github.com/soqucoin/soqtec" target="_blank" class="footer-item" style="color: var(--pip-green); text-decoration: none; margin-left: 1rem;">[SOURCE CODE]</a>
             </div>
             <div class="footer-right">
                 <span class="footer-item">228 Park Ave S, NYC | soqtec.soqu.org</span>
