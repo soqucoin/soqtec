@@ -35,8 +35,8 @@ HOT_RPC_USER    = "soqucoin_hot"
 HOT_RPC_PASS    = "hot_wallet_ops_2026_secure"
 
 LANE_DENOMINATIONS = [10, 50, 100, 500, 1000, 5000, 10000]  # SOQ
-MIN_LANE_DEPTH     = 5      # UTXOs per denomination (trigger refill)
-TARGET_LANE_DEPTH  = 10     # UTXOs per denomination (refill target)
+MIN_LANE_DEPTH     = 1      # UTXOs per denomination (trigger refill) — TEST: was 5
+TARGET_LANE_DEPTH  = 1      # UTXOs per denomination (refill target)  — TEST: was 10
 TX_FEE_SOQ         = 0.001  # Network fee per release TX (conservative)
 DUST_SOQ           = 0.001  # Minimum change output to bother creating
 REFILL_INTERVAL    = 60     # Seconds between refill checks
@@ -136,6 +136,13 @@ def init_db():
             ON utxos(status, denomination);
         CREATE INDEX IF NOT EXISTS idx_releases_burn_id
             ON releases(burn_id);
+
+        CREATE TABLE IF NOT EXISTS lane_addresses (
+            address         TEXT    PRIMARY KEY,
+            denomination    INTEGER NOT NULL,
+            script_pubkey   TEXT    NOT NULL,
+            created_at      REAL    DEFAULT (unixepoch())
+        );
         """)
     log.info("Database initialized at %s", DB_PATH)
 
@@ -143,45 +150,48 @@ def init_db():
 
 def sync_utxos():
     """
-    Scan hot wallet's listunspent for lane-labelled UTXOs and sync into DB.
-    Lane UTXOs are identified by address label prefix 'lane_'.
+    Scan hot wallet's listunspent for lane UTXOs and sync into DB.
+    Lane UTXOs are identified by matching their address against the
+    lane_addresses table (Soqucoin's Dogecoin-derived wallet does NOT
+    include labels in listunspent output, so label-based detection fails).
     """
     try:
-        unspent = rpc("listunspent", [1, 9999999])
+        unspent = rpc("listunspent", [0, 9999999])  # Include 0-conf for faster pickup
     except Exception as e:
         log.error("sync_utxos listunspent failed: %s", e)
         return
 
     synced = 0
     with _db_lock, get_db() as conn:
-        for u in unspent:
-            label = u.get("label", "")
-            if not label.startswith("lane_"):
-                continue
-            try:
-                denom = int(label.split("_")[1])
-            except (IndexError, ValueError):
-                continue
-            if denom not in LANE_DENOMINATIONS:
-                continue
+        # Load known lane addresses — match by scriptPubKey because
+        # Soqucoin's listunspent returns truncated legacy 'address' for
+        # Dilithium bech32m UTXOs (e.g., '3QJmnh' instead of 'sq1p...')
+        lane_spk_rows = conn.execute(
+            "SELECT script_pubkey, denomination FROM lane_addresses"
+        ).fetchall()
+        lane_spk_map = {r["script_pubkey"]: r["denomination"] for r in lane_spk_rows}
 
+        for u in unspent:
+            spk = u.get("scriptPubKey", "")
+            if spk not in lane_spk_map:
+                continue
+            denom = lane_spk_map[spk]
             amount = float(u["amount"])
-            # Insert if not already tracked
-            conn.execute("""
+            cur = conn.execute("""
                 INSERT OR IGNORE INTO utxos
                     (txid, vout, denomination, amount_soq, address, script_pubkey,
                      status, source_fund_txid)
                 VALUES (?, ?, ?, ?, ?, ?, 'available', ?)
             """, (
                 u["txid"], u["vout"], denom, amount,
-                u["address"], u.get("scriptPubKey", ""),
-                u["txid"],  # The UTXO itself IS the evidence of funding
+                u.get("address", ""), spk,
+                u["txid"],
             ))
-            synced += conn.rowcount
+            synced += cur.rowcount
 
         # Mark as 'stale' any UTXOs in DB that are no longer in listunspent
-        # (spent by external means) — but only if status was 'available'
-        live_set = {(u["txid"], u["vout"]) for u in unspent if u.get("label","").startswith("lane_")}
+        live_set = {(u["txid"], u["vout"]) for u in unspent
+                    if u.get("scriptPubKey", "") in lane_spk_map}
         db_available = conn.execute(
             "SELECT txid, vout FROM utxos WHERE status='available'"
         ).fetchall()
@@ -210,10 +220,20 @@ def get_lane_depths():
 def fund_lane_utxo(denomination: int):
     """
     Create a new lane UTXO of the given denomination from the hot wallet.
-    Labels the address so sync_utxos() will pick it up.
+    Records the address in lane_addresses so sync_utxos() can identify it.
     """
     label = f"lane_{denomination}"
     addr = rpc("getnewaddress", [label])
+    # Register this address as a lane address in the DB
+    # Resolve scriptPubKey via validateaddress (needed because listunspent
+    # returns truncated addresses for Dilithium bech32m)
+    addr_info = rpc("validateaddress", [addr])
+    spk = addr_info.get("scriptPubKey", "")
+    with _db_lock, get_db() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO lane_addresses (address, denomination, script_pubkey)
+            VALUES (?, ?, ?)
+        """, (addr, denomination, spk))
     txid = rpc("sendtoaddress", [addr, denomination, f"Lane fund {denomination} SOQ", "", False])
     log.info("Funded lane_%d: addr=%s txid=%s", denomination, addr, txid[:16])
     return txid
@@ -296,32 +316,39 @@ def reserve_utxo(utxo_id: int, burn_id: str):
 
 def build_and_broadcast(utxo: dict, recipient: str, net_amount_soq: float, burn_id: str):
     """
-    Build a raw transaction spending exactly one lane UTXO, sign, broadcast.
-    Returns release txid.
+    Release a lane UTXO to the recipient.
+
+    Strategy: Soqucoin's createrawtransaction rejects Dilithium bech32m addresses.
+    Workaround: lock ALL wallet UTXOs except the target lane UTXO, then use
+    sendtoaddress (which DOES accept bech32m), then unlock all.
+    This forces the coin selector to use ONLY our pre-selected lane UTXO.
     """
-    inputs = [{"txid": utxo["txid"], "vout": utxo["vout"]}]
+    target_txid = utxo["txid"]
+    target_vout = utxo["vout"]
 
-    # Calculate change
-    change = round(utxo["amount_soq"] - net_amount_soq - TX_FEE_SOQ, 8)
-    outputs = {recipient: round(net_amount_soq, 8)}
+    # 1. Get all unspent UTXOs
+    all_utxos = rpc("listunspent", [0, 9999999])
 
-    if change > DUST_SOQ:
-        # Return change to a fresh lane address (keeps lanes topped up organically)
-        denom = int(net_amount_soq) if int(net_amount_soq) in LANE_DENOMINATIONS else LANE_DENOMINATIONS[0]
-        change_addr = rpc("getnewaddress", [f"lane_{denom}"])
-        outputs[change_addr] = change
+    # 2. Lock everything EXCEPT the target lane UTXO
+    to_lock = [{"txid": u["txid"], "vout": u["vout"]}
+               for u in all_utxos
+               if not (u["txid"] == target_txid and u["vout"] == target_vout)]
+    if to_lock:
+        rpc("lockunspent", [False, to_lock])
 
-    # Build raw TX
-    raw_tx = rpc("createrawtransaction", [inputs, outputs])
+    try:
+        # 3. sendtoaddress — now coin selector can ONLY pick the lane UTXO
+        release_txid = rpc("sendtoaddress", [
+            recipient,
+            round(net_amount_soq, 8),
+            f"PAUL bridge release: {burn_id[:32]}",
+            "",       # comment_to
+            False,    # subtractfeefromamount
+        ])
+    finally:
+        # 4. Always unlock everything (even on failure)
+        rpc("lockunspent", [True])
 
-    # Sign with wallet (hot wallet owns these UTXOs — label-based)
-    signed = rpc("signrawtransactionwithwallet", [raw_tx])
-    if not signed.get("complete"):
-        errors = signed.get("errors", [])
-        raise RuntimeError(f"TX signing incomplete: {errors}")
-
-    # Broadcast
-    release_txid = rpc("sendrawtransaction", [signed["hex"]])
     return release_txid
 
 def do_bridge_release(burn_id: str, recipient: str, gross_amount: float, net_amount: float):
