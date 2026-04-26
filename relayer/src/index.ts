@@ -21,13 +21,14 @@ import { startApiServer } from './api';
 import { logger } from './utils/logger';
 import { loadConfig } from './config';
 import { DUAEventRouter, SolanaCEA } from './cea';
+import { SolanaBridgeExecutor } from './bridge/solana-executor';
 import idl from './idl/soqtec_bridge.json';
 
 async function main(): Promise<void> {
   logger.info('╔════════════════════════════════════════════╗');
-  logger.info('║   SOQ-TEC BRIDGE RELAYER v0.2.0            ║');
+  logger.info('║   SOQ-TEC BRIDGE RELAYER v0.3.0            ║');
   logger.info('║   Quantum-Tolerant Ecosystem Custody       ║');
-  logger.info('║   PAUL + DUA/CEA — Chain-Agnostic Release  ║');
+  logger.info('║   PAUL + DUA/CEA + PoR + Bridge-Back       ║');
   logger.info('╚════════════════════════════════════════════╝');
   logger.info('');
 
@@ -45,10 +46,34 @@ async function main(): Promise<void> {
   const soqucoinWatcher = new SoqucoinWatcher(config, queue);
 
   await solanaWatcher.start();
-  logger.info('✓ Solana watcher started (legacy poll)');
+  logger.info('Solana watcher started (legacy poll)');
 
   await soqucoinWatcher.start();
-  logger.info('✓ Soqucoin watcher started');
+  logger.info('Soqucoin watcher started');
+
+  // ─── Bridge Executor (SOQ→SOL + PoR) ──────────────────
+  let bridgeExecutor: SolanaBridgeExecutor | null = null;
+
+  try {
+    bridgeExecutor = new SolanaBridgeExecutor(config);
+    await bridgeExecutor.initialize();
+
+    if (bridgeExecutor.isInitialized()) {
+      // Attach to queue for bridge-back mints
+      queue.setBridgeExecutor(bridgeExecutor);
+
+      // Start periodic PoR attestation (every 5 min)
+      bridgeExecutor.startPeriodicPoR(
+        () => soqucoinWatcher.getVaultBalance(),
+        () => soqucoinWatcher.getBlockHeight()
+      );
+      logger.info('Bridge executor initialized — SOQ→SOL + PoR active');
+    } else {
+      logger.warn('Bridge executor: IDL not loaded — running in detection-only mode');
+    }
+  } catch (err: any) {
+    logger.warn(`Bridge executor skipped: ${err.message}`);
+  }
 
   // ─── DUA/CEA Pipeline ─────────────────────────────────
   let duaRouter: DUAEventRouter | null = null;
@@ -88,7 +113,7 @@ async function main(): Promise<void> {
 
     // Start the DUA pipeline
     await duaRouter.startAll();
-    logger.info('│ ✅ DUA/CEA pipeline active');
+    logger.info('│ DUA/CEA pipeline active');
     logger.info('│ Flow: Burn → CEA → DUA Router → PAUL → L1 Release');
     logger.info('└──────────────────────────────────────────┘');
 
@@ -103,7 +128,7 @@ async function main(): Promise<void> {
 
   // Start API server for terminal dashboard
   const api = await startApiServer(config, queue, solanaWatcher, soqucoinWatcher);
-  logger.info(`✓ API server listening on port ${config.apiPort}`);
+  logger.info(`API server listening on port ${config.apiPort}`);
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {
@@ -111,6 +136,7 @@ async function main(): Promise<void> {
     await solanaWatcher.stop();
     await soqucoinWatcher.stop();
     if (duaRouter) await duaRouter.stopAll();
+    if (bridgeExecutor) bridgeExecutor.stopPeriodicPoR();
     (api as any).close();
     process.exit(0);
   };
