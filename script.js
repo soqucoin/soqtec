@@ -8,8 +8,8 @@
 // CONFIGURATION
 // ============================================================
 const CONFIG = {
-    // Relayer API — always use production (relay is on VPS)
-    relayerApi: 'https://soqtec-relay.soqu.org',
+    // Relayer API — proxied through Cloudflare Worker (HTTPS) → stagenet (HTTP)
+    relayerApi: 'https://soqtec-relay-proxy.research-c26.workers.dev',
     
     // Gateway API (wallet-api handles gateway transfers)
     bridgeApi: 'https://wallet-api.soqu.org',
@@ -459,7 +459,6 @@ class Dashboard {
                 for (const tx of data.transfers) {
                     const dir = tx.direction === 'sol_to_soq' ? 'pSOQ→SOQ' : 'SOQ→pSOQ';
                     const status = tx.status.toUpperCase();
-                    // Format amount: pSOQ uses 9 decimals (Solana SPL standard)
                     const raw = typeof tx.amount === 'number' ? tx.amount : parseFloat(tx.amount);
                     const amount = raw > 1000000 ? (raw / 1e9).toFixed(0) : raw;
                     this.addActivityEntry(
@@ -470,6 +469,57 @@ class Dashboard {
             }
         } catch (e) {
             // Silently fail — relayer might not be running
+        }
+
+        // Fetch DUA/PAUL releases — real burn-to-release pipeline data
+        try {
+            const duaRes = await fetch(`${CONFIG.relayerApi}/api/dua/releases`, {
+                signal: AbortSignal.timeout(5000)
+            });
+            if (!duaRes.ok) return;
+            const duaData = await duaRes.json();
+
+            if (duaData.releases && duaData.releases.length > 0) {
+                const isFirstDuaPoll = !this._seenDuaReleases;
+                if (isFirstDuaPoll) this._seenDuaReleases = new Set();
+
+                // On first poll, show the 3 most recent releases to seed the feed
+                const releases = isFirstDuaPoll
+                    ? duaData.releases.slice(0, 3)
+                    : duaData.releases;
+
+                for (const rel of releases) {
+                    const key = rel.releaseTxId || rel.burnTxId;
+                    if (this._seenDuaReleases.has(key)) continue;
+                    this._seenDuaReleases.add(key);
+
+                    const amt = (Number(rel.netAmountSoq) / 1e9).toFixed(0);
+                    const method = (rel.releaseMethod || 'direct').toUpperCase();
+                    const burnShort = rel.burnTxId ? rel.burnTxId.slice(0, 12) + '...' : '—';
+                    const relTxShort = rel.releaseTxId ? rel.releaseTxId.slice(0, 12) + '...' : 'pending';
+
+                    this.addActivityEntry('highlight',
+                        `[PAUL] 🔥 ${amt} pSOQ burned (${burnShort}) → ${amt} SOQ released via ${method}`
+                    );
+                    this.addActivityEntry('info',
+                        `[PAUL] L1 release TX: ${relTxShort} | confidence: ${rel.confidence || '—'}`
+                    );
+
+                    // Trigger flow animation only for truly new releases (not first-load seed)
+                    if (!isFirstDuaPoll && !this._animating) {
+                        this.animateBridgeFlow(`${amt} SOQ`, rel.releaseTxId);
+                    }
+                }
+
+                // On first poll, also mark ALL existing releases as seen to prevent re-display
+                if (isFirstDuaPoll) {
+                    for (const rel of duaData.releases) {
+                        this._seenDuaReleases.add(rel.releaseTxId || rel.burnTxId);
+                    }
+                }
+            }
+        } catch (e) {
+            // DUA endpoint may not exist on older relayers
         }
     }
 
