@@ -20,7 +20,7 @@ const PROGRAM_ID = new PublicKey('9pCJxjVF8VTizZ9RZZLTu997y2DafWgUGqYbrNiqPw36')
 const BRIDGE_SEED = Buffer.from('bridge');
 
 // The Soqucoin address to receive SOQ after burn
-const SOQ_DESTINATION = 'sq1pwfwfed7jvfz68h030xskg72xptfun0cc4y7qyyd75jhvlmu3klmq9xj24p';
+const SOQ_DESTINATION = 'ssq1pxu0rtkqwmw02ezaj3q7f697l62vu24qppg4fzq45dj32yjm70xdq234m9q';
 
 async function main() {
   // Load IDL
@@ -33,7 +33,7 @@ async function main() {
   const keypair = Keypair.fromSecretKey(Uint8Array.from(keypairData));
   const wallet = new anchor.Wallet(keypair);
 
-  const connection = new Connection('https://api.devnet.solana.com', 'confirmed');
+  const connection = new Connection('https://devnet.helius-rpc.com/?api-key=ea8d9de9-6ac5-429b-8225-4bc669e0c8d3', 'confirmed');
   const provider = new anchor.AnchorProvider(connection, wallet, { commitment: 'confirmed' });
   const program = new anchor.Program(idl, provider);
 
@@ -74,10 +74,11 @@ async function main() {
   Buffer.from(SOQ_DESTINATION, 'utf8').copy(soqAddressBytes);
 
   // Execute burn — 100 tpSOQ (smallest denomination with 9 decimals)
-  const burnAmount = new anchor.BN(100 * 1e9); // 100 tpSOQ
+  const burnAmount = new anchor.BN(10 * 1e9); // 10 tpSOQ (Quantum Express Phase 1 test)
   
-  console.log(`🔥 Burning 100 tpSOQ...`);
-  console.log(`   → Will release 99.9 SOQ to ${SOQ_DESTINATION.slice(0, 20)}...`);
+  console.log(`🔥 Burning 10 tpSOQ (Quantum Express Phase 1)...`);
+  console.log(`   → Watcher detects burn → Queue → soq-signer releases SOQ`);
+  console.log(`   → SOQ to: ${SOQ_DESTINATION.slice(0, 20)}...`);
   console.log('');
 
   try {

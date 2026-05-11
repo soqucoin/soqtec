@@ -313,6 +313,25 @@ pub mod soqtec_bridge {
         });
         Ok(())
     }
+
+    /// Admin: Update the pSOQ mint address stored in bridge state.
+    /// Required when the bridge was initialized with a different mint
+    /// than what the wallet/vault ecosystem uses.
+    /// Authority-gated: only the bridge authority can call this.
+    pub fn set_mint(ctx: Context<AdminAction>, new_mint: Pubkey) -> Result<()> {
+        let bridge = &mut ctx.accounts.bridge_state;
+        require!(
+            ctx.accounts.authority.key() == bridge.authority,
+            SoqtecError::Unauthorized
+        );
+
+        let old_mint = bridge.mint;
+        bridge.mint = new_mint;
+
+        msg!("Bridge mint updated: {} → {}", old_mint, new_mint);
+
+        Ok(())
+    }
 }
 
 // ============================================================

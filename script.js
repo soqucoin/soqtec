@@ -18,7 +18,7 @@ const CONFIG = {
     explorerApi: 'https://xplorer.soqu.org',
     
     // Solana RPC
-    solanaRpc: 'https://api.devnet.solana.com',
+    solanaRpc: 'https://devnet.helius-rpc.com/?api-key=ea8d9de9-6ac5-429b-8225-4bc669e0c8d3',
     
     // Refresh intervals
     dataRefreshMs: 15000,     // 15s for live data
@@ -721,13 +721,13 @@ class Dashboard {
             { type: 'highlight', text: '[SOQ-TEC] Vault custody: ML-DSA-44 ACTIVE' },
             { type: 'system', text: '[SYSTEM] Proof of reserves check: PASS' },
             { type: 'highlight', text: '[SOQ-TEC] QUANTUM EXPRESS: Optimistic relay enabled' },
-            { type: 'info', text: '[INFO] XMSS-Lite vault: 1,024 keys available' },
+            { type: 'info', text: '[INFO] XMSS-Lite vault: 16 keys available (depth=4)' },
             { type: 'system', text: '[SYSTEM] Circuit breaker: ARMED (inactive)' },
             { type: 'highlight', text: '[SOQ-TEC] Next PoR attestation in 60 blocks (~1 hour)' },
             { type: 'info', text: '[INFO] Gateway program: 9pCJxjVF8VTizZ9RZZLTu997y2DafWgUGqYbrNiqPw36' },
             { type: 'info', text: '[INFO] Instant receipt window: <30s via Quantum Express' },
             { type: 'system', text: '[SYSTEM] No pending gateway transactions' },
-            { type: 'highlight', text: '[SOQ-TEC] Revolving Vault: XMSS-Lite (1,024 sigs/vault)' },
+            { type: 'highlight', text: '[SOQ-TEC] Revolving Vault: XMSS-Lite (16 sigs/vault)' },
             { type: 'info', text: '[INFO] Direct-mint-to-vault: Zero Ed25519 exposure' },
             { type: 'highlight', text: '[USDSOQ] Stablecoin module: ON-PEG — $1.0000' },
             { type: 'system', text: '[USDSOQ] GENIUS Act compliance check: PASS' },

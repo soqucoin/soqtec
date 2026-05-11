@@ -56,10 +56,12 @@ Solana Wallet (Ed25519, vulnerable)
 | Component | Technology | Status |
 |-----------|-----------|--------|
 | **Solana Bridge Program** | Anchor/Rust — SPL burn/mint, circuit breaker, PoR | Deployed (devnet) |
-| **PAUL Lane Manager** | Python — Pre-Allocated UTXO Lanes for sub-second releases | Deployed |
+| **XMSS Vault Program** | Anchor/Rust — WOTS+ signature verification, Merkle proof, CPI burn | Deployed (devnet) |
 | **DUA/CEA Pipeline** | TypeScript/Node — Dual Unicast Adapter + Chain Event Aggregator | Deployed |
-| **Relayer Service** | TypeScript/Node — event watchers, PAUL routing | Deployed |
+| **Relayer Service** | TypeScript/Node — event watchers, persistent seen-set, soq-signer routing | Deployed |
+| **SoquShield Bridge** | Dart/Flutter — native WOTS+ signer, vault TX builder | Shipped |
 | **SOQ-TEC Terminal** | HTML/CSS/JS — Pip-Boy themed operations dashboard | Deployed |
+| ~~PAUL Lane Manager~~ | ~~Python — Pre-Allocated UTXO Lanes~~ | 🔴 Retired (May 2026) |
 
 ### How It Works
 
@@ -79,16 +81,25 @@ flowchart LR
     B --> A
 ```
 
-### Winternitz Integration (Stretch Goal)
+### XMSS Vault Integration (Patent Claims 1+4+11)
 
-The Winternitz Vault becomes the first link in an **end-to-end PQ-safe chain**:
+The XMSS vault is the production path — an **end-to-end quantum-safe chain** where Ed25519 is used ONLY for Solana transaction fees, never for value custody:
 
-1. User deposits SOL into a Winternitz Vault (PQ-safe on Solana)
-2. Vault funds a bridge transaction via SOQ-TEC
-3. Bridge converts to native SOQ on Soqucoin L1 (also PQ-safe)
-4. Neither side uses classical Ed25519 at any point in the critical path
+1. User generates an XMSS-Lite key tree (Keccak256 WOTS+, w=16)
+2. Vault program verifies WOTS+ signature + Merkle proof on-chain
+3. Vault CPI-calls `burn_for_redemption` on the bridge program
+4. Relayer detects the burn event (identical to native burns)
+5. soq-signer releases SOQ on L1 via ML-DSA-44 (Dilithium)
 
-This creates the world's first **fully post-quantum cross-chain flow**.
+**Value custody chain:** `WOTS+ (Keccak) → ML-DSA-44 (Dilithium)` — zero classical touch.
+
+### SoquShield Mobile Bridge
+
+SoquShield (Flutter iOS/Android) includes a complete Dart port of the XMSS-Lite signing engine:
+- `wots_signer.dart` — WOTS+ sign/verify, hash chains
+- `xmss_tree.dart` — key tree + Merkle proof generator  
+- `vault_bridge_service.dart` — Solana TX builder with PDA derivation, Borsh encoding
+- Cross-verified bit-for-bit against the JavaScript implementation (9/9 vectors match)
 
 ---
 
@@ -168,16 +179,20 @@ soqtec/
 ├── style.css           # Pip-Boy theme + CRT effects
 ├── script.js           # Boot sequence, live data, activity feed
 ├── programs/
-│   └── soqtec-bridge/  # Anchor program (Solana devnet)
+│   ├── soqtec-bridge/  # Anchor program — SPL burn/mint bridge
+│   └── xmss-vault/     # Anchor program — WOTS+ vault + CPI burn
 ├── relayer/
-│   └── src/            # DUA/CEA pipeline + PAUL routing
+│   └── src/            # DUA/CEA pipeline + soq-signer routing
 ├── scripts/
-│   └── e2e-dua-burn-test.js  # End-to-end pipeline test
+│   ├── xmss-client.js        # XMSS-Lite JS reference implementation
+│   ├── e2e-vault-bridge-test.js  # Vault CPI E2E test (gold standard)
+│   ├── e2e-dua-burn-test.js     # DUA pipeline test
+│   └── cross-verify-wots.js     # Cross-verification test vectors
 ├── docs/
 │   ├── ARCHITECTURE.md       # Technical architecture
 │   ├── SECURITY.md           # Trust model & threat assumptions
 │   ├── BRIDGE_SPEC.md        # Bridge protocol specification
-│   └── PAUL_ARCHITECTURE.md  # PAUL/DUA/CEA architecture
+│   └── PAUL_ARCHITECTURE.md  # PAUL/DUA/CEA architecture (⚠️ PAUL retired)
 ├── LICENSE             # MIT
 └── README.md           # This file
 ```

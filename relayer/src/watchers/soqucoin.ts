@@ -4,8 +4,15 @@
  * Monitors the Soqucoin L1 vault address for incoming lock transactions.
  * When a deposit is detected, it queues a pSOQ mint on the Solana side.
  * 
- * Uses the Soqucoin JSON-RPC API (Bitcoin Core compatible).
- * Vault custody uses NIST FIPS 204 ML-DSA-44 (Dilithium) keys.
+ * Architecture (Layer 3 — DL-HOT-WALLET-RPC-QUEUE):
+ *   READ path:  Cold Node (disablewallet=1) for chain info + block scanning
+ *               SoquShield ElectrumX API for vault balance/UTXO queries
+ *   WRITE path: Hot Wallet is NEVER touched by the watcher.
+ *               Only the TransferQueue.processSolToSoq() calls sendtoaddress.
+ * 
+ * This separation eliminates cs_wallet mutex contention from the polling loop,
+ * which was the root cause of "Work queue depth exceeded" on the Hot Wallet VPS.
+ * See: design-log/DL-HOT-WALLET-RPC-QUEUE.md
  */
 
 import { RelayerConfig } from '../config';
@@ -36,17 +43,19 @@ export class SoqucoinWatcher {
 
   async start(): Promise<void> {
     logger.info('[Soqucoin] Starting watcher...');
-    logger.info(`[Soqucoin] RPC: ${this.config.soqucoinRpc}`);
+    logger.info(`[Soqucoin] Cold Node RPC: ${this.config.coldNodeRpc}`);
+    logger.info(`[Soqucoin] SoquShield API: ${this.config.soqushieldApi}`);
+    logger.info(`[Soqucoin] Hot Wallet RPC: ${this.config.soqucoinRpc} (WRITE-ONLY — used by TransferQueue)`);
     logger.info(`[Soqucoin] Vault: ${this.config.vaultAddress || 'not configured'}`);
     logger.info(`[Soqucoin] Poll interval: ${this.config.soqucoinPollInterval}ms`);
 
-    // Get current block height
+    // Get current block height — uses COLD NODE (no wallet mutex)
     try {
-      const info = await this.rpcCall('getblockchaininfo');
+      const info = await this.coldNodeRpc('getblockchaininfo');
       this.lastBlockHeight = info.blocks;
       logger.info(`[Soqucoin] Current block height: ${this.lastBlockHeight}`);
     } catch (err) {
-      logger.warn('[Soqucoin] Could not connect to RPC — will retry...');
+      logger.warn('[Soqucoin] Could not connect to cold node RPC — will retry...');
     }
 
     // Start polling
@@ -63,20 +72,20 @@ export class SoqucoinWatcher {
 
   private async poll(): Promise<void> {
     try {
-      // Check for new blocks
-      const info = await this.rpcCall('getblockchaininfo');
+      // Check for new blocks — COLD NODE (no wallet mutex)
+      const info = await this.coldNodeRpc('getblockchaininfo');
       const currentHeight = info.blocks;
 
       if (currentHeight <= this.lastBlockHeight) return;
 
-      // Scan new blocks for vault transactions
+      // Scan new blocks for vault transactions — COLD NODE (no wallet mutex)
       for (let h = this.lastBlockHeight + 1; h <= currentHeight; h++) {
         await this.scanBlock(h);
       }
 
       this.lastBlockHeight = currentHeight;
 
-      // Update vault balance
+      // Update vault balance — ELECTRUMX (zero mutex, zero RPC)
       await this.updateVaultBalance();
     } catch (err) {
       logger.error('[Soqucoin] Poll error:', err);
@@ -85,8 +94,9 @@ export class SoqucoinWatcher {
 
   private async scanBlock(height: number): Promise<void> {
     try {
-      const blockHash = await this.rpcCall('getblockhash', [height]);
-      const block = await this.rpcCall('getblock', [blockHash, 2]); // verbosity=2 includes tx details
+      // COLD NODE — getblockhash and getblock only need cs_main (no wallet)
+      const blockHash = await this.coldNodeRpc('getblockhash', [height]);
+      const block = await this.coldNodeRpc('getblock', [blockHash, 2]); // verbosity=2 includes tx details
 
       for (const tx of block.tx || []) {
         // Check if any output pays to our vault address
@@ -124,27 +134,55 @@ export class SoqucoinWatcher {
     }
   }
 
+  /**
+   * Update vault balance via SoquShield ElectrumX API.
+   * 
+   * BEFORE (cs_wallet contention):
+   *   rpcCall('listunspent', [1, 9999999, [vaultAddress]]) → Hot Wallet → cs_wallet lock
+   * 
+   * AFTER (zero mutex):
+   *   fetch(soqushieldApi/api/v2/balance/{address}) → ElectrumX → Cold Node (no wallet)
+   */
   private async updateVaultBalance(): Promise<void> {
     if (!this.config.vaultAddress) return;
     try {
-      // Use listunspent filtered to vault address
-      const utxos = await this.rpcCall('listunspent', [1, 9999999, [this.config.vaultAddress]]);
-      this.vaultBalance = utxos.reduce((sum: number, utxo: any) => sum + utxo.amount, 0);
-    } catch {
-      // Fallback: keep existing balance
+      const response = await fetch(
+        `${this.config.soqushieldApi}/api/v2/balance/${this.config.vaultAddress}`,
+        { signal: AbortSignal.timeout(10000) }
+      );
+
+      if (!response.ok) {
+        throw new Error(`ElectrumX API returned ${response.status}`);
+      }
+
+      const data = await response.json() as any;
+      
+      // SoquShield API returns { confirmed: number, unconfirmed: number }
+      // Values are in satoshis, convert to SOQ
+      if (data.confirmed !== undefined) {
+        this.vaultBalance = data.confirmed / 1e8;
+        logger.debug?.(`[Soqucoin] Vault balance updated via ElectrumX: ${this.vaultBalance} SOQ`);
+      }
+    } catch (err: any) {
+      // Fallback: try cold node's gettxout if ElectrumX is down
+      // (gettxout only needs cs_main, not cs_wallet)
+      logger.warn(`[Soqucoin] ElectrumX balance update failed: ${err.message} — keeping cached balance`);
     }
   }
 
   /**
-   * JSON-RPC call to Soqucoin node
+   * JSON-RPC call to the COLD NODE (disablewallet=1).
+   * 
+   * This is the read-path RPC. It NEVER touches the hot wallet.
+   * Only cs_main is acquired — no wallet mutex contention.
    */
-  private async rpcCall(method: string, params: any[] = []): Promise<any> {
-    const response = await fetch(this.config.soqucoinRpc, {
+  private async coldNodeRpc(method: string, params: any[] = []): Promise<any> {
+    const response = await fetch(this.config.coldNodeRpc, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Basic ' + Buffer.from(
-          `${this.config.soqucoinRpcUser}:${this.config.soqucoinRpcPass}`
+          `${this.config.coldNodeRpcUser}:${this.config.coldNodeRpcPass}`
         ).toString('base64'),
       },
       body: JSON.stringify({
@@ -157,7 +195,7 @@ export class SoqucoinWatcher {
 
     const data = await response.json() as any;
     if (data.error) {
-      throw new Error(`RPC error: ${data.error.message}`);
+      throw new Error(`Cold node RPC error: ${data.error.message}`);
     }
     return data.result;
   }

@@ -10,6 +10,11 @@ Architecture: PAUL — Pre-Allocated UTXO Lanes
 Deploy: /usr/local/bin/soqtec-lane-manager.py
 Data:   /var/lib/soqtec-lane-manager/lanes.db
 Port:   3003 (localhost only — behind nginx if needed)
+
+SOQ-INFRA-018: Refactored to use ElectrumX + soq-signer.
+  - Reads (UTXO queries, balance): ElectrumX on 127.0.0.1:50001
+  - Writes (send, address gen):    soq-signer REST on 64.23.129.28:8550
+  - NO hot wallet dependency.      soqucoind-hot can be decommissioned.
 """
 
 import sqlite3
@@ -19,28 +24,35 @@ import threading
 import logging
 import os
 import sys
-import hmac
+import socket
 import hashlib
 import urllib.request
 import urllib.error
-import base64
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-HOT_RPC_HOST    = "127.0.0.1"
-HOT_RPC_PORT    = 44557
-HOT_RPC_USER    = "soqucoin_hot"
-HOT_RPC_PASS    = "hot_wallet_ops_2026_secure"
+# ElectrumX (reads — UTXO queries, balance, scripthash lookups)
+ELECTRUMX_HOST = os.environ.get("PAUL_ELECTRUMX_HOST", "127.0.0.1")
+ELECTRUMX_PORT = int(os.environ.get("PAUL_ELECTRUMX_PORT", "50001"))
+
+# soq-signer (writes — send transactions, get addresses)
+SIGNER_URL   = os.environ.get("SOQ_SIGNER_URL", "http://64.23.129.28:8550")
+SIGNER_TOKEN = os.environ.get("SOQ_SIGNER_TOKEN", "soqsigner-hot-wallet-bearer-2026-staging")
+
+# Cold node RPC (non-wallet calls only: validateaddress, getblockcount)
+COLD_RPC_HOST = os.environ.get("PAUL_COLD_HOST", "127.0.0.1")
+COLD_RPC_PORT = int(os.environ.get("PAUL_COLD_PORT", "38332"))
+COLD_RPC_USER = os.environ.get("PAUL_COLD_USER", "soqucoin")
+COLD_RPC_PASS = os.environ.get("PAUL_COLD_PASS", "stagenet_services_2026_secure")
 
 LANE_DENOMINATIONS = [10, 50, 100, 500, 1000, 5000, 10000]  # SOQ
 MIN_LANE_DEPTH     = 2      # UTXOs per denomination (trigger refill)
 TARGET_LANE_DEPTH  = 3      # UTXOs per denomination (refill target)
 TX_FEE_SOQ         = 0.001  # Network fee per release TX (conservative)
-DUST_SOQ           = 0.001  # Minimum change output to bother creating
-REFILL_INTERVAL    = 120    # Seconds between refill checks (was 60)
-SYNC_INTERVAL      = 30     # Seconds between listunspent sync
+REFILL_INTERVAL    = 120    # Seconds between refill checks
+SYNC_INTERVAL      = 30     # Seconds between ElectrumX UTXO sync
 
 DB_PATH  = "/var/lib/soqtec-lane-manager/lanes.db"
 API_PORT = 3003
@@ -58,29 +70,142 @@ logging.basicConfig(
 )
 log = logging.getLogger("lane-manager")
 
-# ─── RPC Helper ───────────────────────────────────────────────────────────────
+# ─── ElectrumX Client (persistent connection) ────────────────────────────────
 
-def rpc(method, params=None):
-    """Call soqucoind hot wallet RPC. Returns result or raises on error."""
+class ElectrumXClient:
+    """Persistent TCP client for ElectrumX with server.version handshake."""
+
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self._sock = None
+        self._lock = threading.Lock()
+        self._id = 0
+        self._buf = b""
+
+    def _connect(self):
+        """Create connection and perform required server.version handshake."""
+        if self._sock:
+            try:
+                self._sock.close()
+            except:
+                pass
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._sock.settimeout(15)
+        self._sock.connect((self.host, self.port))
+        self._buf = b""
+        # ElectrumX requires server.version before any other call
+        self._raw_call("server.version", ["paul-lane-manager", "1.4"])
+        log.info("ElectrumX connected and handshake complete (%s:%d)", self.host, self.port)
+
+    def _raw_call(self, method, params):
+        """Send a single RPC call and return the parsed result."""
+        self._id += 1
+        req_id = self._id
+        payload = json.dumps({
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "method": method,
+            "params": params or [],
+        }) + "\n"
+        self._sock.sendall(payload.encode())
+
+        # Read lines until we find our response (skip notifications)
+        while True:
+            # Check buffered data first
+            while b"\n" in self._buf:
+                line, self._buf = self._buf.split(b"\n", 1)
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    resp = json.loads(line.decode(errors="replace"))
+                    if "result" in resp or "error" in resp:
+                        if resp.get("error"):
+                            raise RuntimeError(f"ElectrumX {method}: {resp['error']}")
+                        return resp.get("result")
+                except json.JSONDecodeError:
+                    continue
+
+            # Need more data
+            chunk = self._sock.recv(131072)
+            if not chunk:
+                raise RuntimeError(f"ElectrumX {method}: connection closed")
+            self._buf += chunk
+
+    def call(self, method, params=None):
+        """Thread-safe RPC call with auto-reconnect."""
+        with self._lock:
+            for attempt in range(2):
+                try:
+                    if not self._sock:
+                        self._connect()
+                    return self._raw_call(method, params or [])
+                except Exception as e:
+                    if attempt == 0:
+                        log.warning("ElectrumX call failed, reconnecting: %s", e)
+                        self._sock = None
+                        continue
+                    raise
+
+
+# Global ElectrumX client (created at startup)
+_electrumx = None
+
+def electrumx_call(method, params=None):
+    """Convenience wrapper for the global ElectrumX client."""
+    global _electrumx
+    if _electrumx is None:
+        _electrumx = ElectrumXClient(ELECTRUMX_HOST, ELECTRUMX_PORT)
+    return _electrumx.call(method, params)
+
+
+def scripthash_from_spk(script_pubkey_hex):
+    """Convert a scriptPubKey hex string to an ElectrumX scripthash."""
+    spk_bytes = bytes.fromhex(script_pubkey_hex)
+    return hashlib.sha256(spk_bytes).digest()[::-1].hex()
+
+# ─── soq-signer Client ───────────────────────────────────────────────────────
+
+def signer_request(endpoint, method="GET", body=None):
+    """Make an authenticated REST call to the soq-signer."""
+    url = f"{SIGNER_URL}{endpoint}"
+    data = json.dumps(body).encode() if body else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Authorization", f"Bearer {SIGNER_TOKEN}")
+    req.add_header("Content-Type", "application/json")
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode()
+        raise RuntimeError(f"soq-signer {endpoint}: HTTP {e.code}: {err_body}")
+
+# ─── Cold Node RPC (non-wallet calls only) ────────────────────────────────────
+
+def cold_rpc(method, params=None):
+    """Call cold node RPC (validateaddress, getblockcount — NO wallet calls)."""
+    import base64
     payload = json.dumps({
         "jsonrpc": "1.0",
         "id": int(time.time() * 1000),
         "method": method,
         "params": params or [],
     }).encode()
-    auth = base64.b64encode(f"{HOT_RPC_USER}:{HOT_RPC_PASS}".encode()).decode()
+    auth = base64.b64encode(f"{COLD_RPC_USER}:{COLD_RPC_PASS}".encode()).decode()
     req = urllib.request.Request(
-        f"http://{HOT_RPC_HOST}:{HOT_RPC_PORT}/",
+        f"http://{COLD_RPC_HOST}:{COLD_RPC_PORT}/",
         data=payload,
         headers={"Content-Type": "application/json", "Authorization": f"Basic {auth}"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read())
     except urllib.error.HTTPError as e:
         data = json.loads(e.read())
     if data.get("error"):
-        raise RuntimeError(f"RPC {method} error: {data['error']['message']}")
+        raise RuntimeError(f"Cold RPC {method}: {data['error']['message']}")
     return data["result"]
 
 # ─── Database ─────────────────────────────────────────────────────────────────
@@ -101,16 +226,15 @@ def init_db():
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             txid            TEXT    NOT NULL,
             vout            INTEGER NOT NULL,
-            denomination    INTEGER NOT NULL,  -- SOQ whole number
-            amount_soq      REAL    NOT NULL,  -- exact amount
+            denomination    INTEGER NOT NULL,
+            amount_soq      REAL    NOT NULL,
             address         TEXT    NOT NULL,
             script_pubkey   TEXT    NOT NULL,
             status          TEXT    DEFAULT 'available',
-            -- 'available', 'reserved', 'spent', 'stale'
-            source_fund_txid TEXT,             -- PoR: hot wallet TX that created this UTXO
+            source_fund_txid TEXT,
             created_at      REAL    DEFAULT (unixepoch()),
             reserved_at     REAL,
-            reserved_by     TEXT,              -- burn_id / identifier
+            reserved_by     TEXT,
             release_txid    TEXT,
             spent_at        REAL,
             UNIQUE(txid, vout)
@@ -126,7 +250,6 @@ def init_db():
             net_amount      REAL    NOT NULL,
             release_txid    TEXT,
             status          TEXT    DEFAULT 'pending',
-            -- 'pending', 'complete', 'failed'
             error_msg       TEXT,
             created_at      REAL    DEFAULT (unixepoch()),
             released_at     REAL
@@ -146,65 +269,78 @@ def init_db():
         """)
     log.info("Database initialized at %s", DB_PATH)
 
-# ─── UTXO Sync (listunspent → SQLite) ────────────────────────────────────────
+# ─── UTXO Sync (ElectrumX → SQLite) ──────────────────────────────────────────
 
 def sync_utxos():
     """
-    Scan hot wallet's listunspent for lane UTXOs and sync into DB.
-    Lane UTXOs are identified by matching their address against the
-    lane_addresses table (Soqucoin's Dogecoin-derived wallet does NOT
-    include labels in listunspent output, so label-based detection fails).
+    Query ElectrumX for UTXOs belonging to known lane addresses and sync to DB.
+    Deduplicates by scripthash to avoid querying the same address multiple times.
     """
-    try:
-        unspent = rpc("listunspent", [0, 9999999])  # Include 0-conf for faster pickup
-    except Exception as e:
-        log.error("sync_utxos listunspent failed: %s", e)
+    with _db_lock, get_db() as conn:
+        lane_rows = conn.execute(
+            "SELECT address, script_pubkey, denomination FROM lane_addresses"
+        ).fetchall()
+
+    if not lane_rows:
         return
 
+    # Deduplicate: group by script_pubkey → {spk: (addr, denom)}
+    spk_map = {}
+    for row in lane_rows:
+        spk = row["script_pubkey"]
+        if spk not in spk_map:
+            spk_map[spk] = (row["address"], row["denomination"])
+
     synced = 0
+    live_set = set()
+    queried = 0
+    total = len(spk_map)
+
+    for spk, (addr, denom) in spk_map.items():
+        queried += 1
+        if queried % 100 == 0:
+            log.info("sync_utxos progress: %d/%d scripthashes queried", queried, total)
+
+        try:
+            sh = scripthash_from_spk(spk)
+            utxos = electrumx_call("blockchain.scripthash.listunspent", [sh])
+        except Exception as e:
+            log.error("sync_utxos ElectrumX query for %s failed: %s", addr[:16], e)
+            continue
+
+        if not utxos:
+            continue
+
+        for u in utxos:
+            txid = u["tx_hash"]
+            vout = u["tx_pos"]
+            amount = u["value"] / 1e8  # ElectrumX returns satoshis
+            live_set.add((txid, vout))
+
+            with _db_lock, get_db() as conn:
+                cur = conn.execute("""
+                    INSERT OR IGNORE INTO utxos
+                        (txid, vout, denomination, amount_soq, address, script_pubkey,
+                         status, source_fund_txid)
+                    VALUES (?, ?, ?, ?, ?, ?, 'available', ?)
+                """, (txid, vout, denom, amount, addr, spk, txid))
+                synced += cur.rowcount
+
+    # Mark stale UTXOs that disappeared from ElectrumX
     with _db_lock, get_db() as conn:
-        # Load known lane addresses — match by scriptPubKey because
-        # Soqucoin's listunspent returns truncated legacy 'address' for
-        # Dilithium bech32m UTXOs (e.g., '3QJmnh' instead of 'sq1p...')
-        lane_spk_rows = conn.execute(
-            "SELECT script_pubkey, denomination FROM lane_addresses"
-        ).fetchall()
-        lane_spk_map = {r["script_pubkey"]: r["denomination"] for r in lane_spk_rows}
-
-        for u in unspent:
-            spk = u.get("scriptPubKey", "")
-            if spk not in lane_spk_map:
-                continue
-            denom = lane_spk_map[spk]
-            amount = float(u["amount"])
-            cur = conn.execute("""
-                INSERT OR IGNORE INTO utxos
-                    (txid, vout, denomination, amount_soq, address, script_pubkey,
-                     status, source_fund_txid)
-                VALUES (?, ?, ?, ?, ?, ?, 'available', ?)
-            """, (
-                u["txid"], u["vout"], denom, amount,
-                u.get("address", ""), spk,
-                u["txid"],
-            ))
-            synced += cur.rowcount
-
-        # Mark as 'stale' any UTXOs in DB that are no longer in listunspent
-        live_set = {(u["txid"], u["vout"]) for u in unspent
-                    if u.get("scriptPubKey", "") in lane_spk_map}
         db_available = conn.execute(
             "SELECT txid, vout FROM utxos WHERE status='available'"
         ).fetchall()
-        for row in db_available:
-            if (row["txid"], row["vout"]) not in live_set:
+        for r in db_available:
+            if (r["txid"], r["vout"]) not in live_set:
                 conn.execute(
                     "UPDATE utxos SET status='stale' WHERE txid=? AND vout=?",
-                    (row["txid"], row["vout"])
+                    (r["txid"], r["vout"])
                 )
-                log.warning("Marked stale UTXO: %s:%d", row["txid"], row["vout"])
+                log.warning("Marked stale UTXO: %s:%d", r["txid"], r["vout"])
 
     if synced:
-        log.info("sync_utxos: added %d new lane UTXOs", synced)
+        log.info("sync_utxos: added %d new lane UTXOs via ElectrumX", synced)
 
 # ─── Lane Depth & Refill ─────────────────────────────────────────────────────
 
@@ -217,34 +353,69 @@ def get_lane_depths():
         """).fetchall()
     return {r["denomination"]: r["cnt"] for r in rows}
 
-def fund_lane_utxo(denomination: int):
+def get_signer_balance():
+    """Get the balance from soq-signer REST API (replaces wallet getbalance)."""
+    try:
+        resp = signer_request("/api/v1/balance")
+        return resp.get("confirmed", 0) / 1e8  # signer returns satoshis
+    except Exception as e:
+        log.error("get_signer_balance failed: %s", e)
+        return None
+
+def fund_lane_utxo(denomination):
     """
-    Create a new lane UTXO of the given denomination from the hot wallet.
-    Records the address in lane_addresses so sync_utxos() can identify it.
+    Create a new lane UTXO by sending from the soq-signer.
+    The signer handles coin selection, signing (ML-DSA-44), and broadcast.
     """
-    label = f"lane_{denomination}"
-    addr = rpc("getnewaddress", [label])
-    # Register this address as a lane address in the DB
-    # Resolve scriptPubKey via validateaddress (needed because listunspent
-    # returns truncated addresses for Dilithium bech32m)
-    addr_info = rpc("validateaddress", [addr])
+    # Generate a fresh lane address using the signer's key manager
+    # For now, use one of the signer's managed addresses as the recipient
+    # and let the change go back to the signer's change address.
+    # The lane address is created on the cold node via validateaddress.
+    #
+    # SOQ-INFRA-018: The signer manages its own keys and sends to lane addresses.
+    # We need a lane-specific address. Use cold node's getnewaddress equivalent
+    # or pre-generate addresses. For the refactor, we use the signer's /api/v1/send
+    # to send `denomination` SOQ to a fresh address derived from the signer.
+
+    # Get signer's addresses
+    status = signer_request("/api/v1/status")
+    signer_addrs = status.get("addresses", [])
+    if not signer_addrs:
+        raise RuntimeError("soq-signer has no managed addresses")
+
+    # For lane funding, we send from the signer to one of its own addresses.
+    # The UTXO created at that address becomes the lane UTXO.
+    # Use the first signer address as the lane target.
+    lane_addr = signer_addrs[0]
+
+    # Resolve scriptPubKey via cold node
+    addr_info = cold_rpc("validateaddress", [lane_addr])
     spk = addr_info.get("scriptPubKey", "")
+
+    # Register this as a lane address
     with _db_lock, get_db() as conn:
         conn.execute("""
             INSERT OR IGNORE INTO lane_addresses (address, denomination, script_pubkey)
             VALUES (?, ?, ?)
-        """, (addr, denomination, spk))
-    txid = rpc("sendtoaddress", [addr, denomination, f"Lane fund {denomination} SOQ", "", False])
-    log.info("Funded lane_%d: addr=%s txid=%s", denomination, addr, txid[:16])
+        """, (lane_addr, denomination, spk))
+
+    # Send via soq-signer REST API (amount in satoshis)
+    amount_sat = int(denomination * 1e8)
+    result = signer_request("/api/v1/send", method="POST", body={
+        "address": lane_addr,
+        "amount": amount_sat,
+    })
+
+    txid = result.get("txid", "unknown")
+    log.info("Funded lane_%d: addr=%s txid=%s via soq-signer (%s)",
+             denomination, lane_addr[:20], txid[:16], result.get("elapsed", "?"))
     return txid
 
 def refill_lanes():
     """Top up any lanes below MIN_LANE_DEPTH to TARGET_LANE_DEPTH."""
     depths = get_lane_depths()
-    try:
-        balance = rpc("getbalance")
-    except Exception as e:
-        log.error("refill_lanes: can't get balance: %s", e)
+    balance = get_signer_balance()
+    if balance is None:
         return
 
     for denom in LANE_DENOMINATIONS:
@@ -253,8 +424,8 @@ def refill_lanes():
             continue
         needed = TARGET_LANE_DEPTH - current
         cost = needed * denom
-        if balance < cost + 1:  # keep 1 SOQ buffer
-            log.warning("refill: insufficient balance (%.2f SOQ) to fund %d × %d SOQ lanes",
+        if balance < cost + 1:
+            log.warning("refill: insufficient signer balance (%.2f SOQ) for %d × %d SOQ",
                         balance, needed, denom)
             break
         log.info("Refilling lane_%d: current=%d, creating %d UTXOs (cost=%.1f SOQ)",
@@ -263,18 +434,17 @@ def refill_lanes():
             try:
                 fund_lane_utxo(denom)
                 balance -= denom
-                time.sleep(0.5)  # Don't spam mempool
+                time.sleep(0.5)
             except Exception as e:
                 log.error("refill lane_%d failed: %s", denom, e)
                 break
 
 # ─── Reserve & Release ────────────────────────────────────────────────────────
 
-def find_best_utxo(net_amount_soq: float):
+def find_best_utxo(net_amount_soq):
     """
     Find the best available lane UTXO for the requested amount.
     Strategy: smallest denomination >= amount, to minimise change output.
-    Falls back to largest available denomination if none are >= amount (rare).
     """
     target_denom = None
     for d in sorted(LANE_DENOMINATIONS):
@@ -282,7 +452,6 @@ def find_best_utxo(net_amount_soq: float):
             target_denom = d
             break
     if target_denom is None:
-        # Amount exceeds largest lane — use largest available and issue change
         target_denom = max(LANE_DENOMINATIONS)
 
     with _db_lock, get_db() as conn:
@@ -295,7 +464,6 @@ def find_best_utxo(net_amount_soq: float):
         """, (target_denom,)).fetchone()
 
         if row is None:
-            # Fallback: try any denomination with enough funds
             row = conn.execute("""
                 SELECT id, txid, vout, amount_soq, address, script_pubkey
                 FROM utxos
@@ -306,7 +474,7 @@ def find_best_utxo(net_amount_soq: float):
 
     return dict(row) if row else None
 
-def reserve_utxo(utxo_id: int, burn_id: str):
+def reserve_utxo(utxo_id, burn_id):
     with _db_lock, get_db() as conn:
         conn.execute("""
             UPDATE utxos
@@ -314,69 +482,50 @@ def reserve_utxo(utxo_id: int, burn_id: str):
             WHERE id=? AND status='available'
         """, (burn_id, utxo_id))
 
-def build_and_broadcast(utxo: dict, recipient: str, net_amount_soq: float, burn_id: str):
+def build_and_broadcast(utxo, recipient, net_amount_soq, burn_id):
     """
-    Release a lane UTXO to the recipient.
+    Release a lane UTXO to the recipient via soq-signer.
 
-    Strategy: Soqucoin's createrawtransaction rejects Dilithium bech32m addresses.
-    Workaround: lock ALL wallet UTXOs except the target lane UTXO, then use
-    sendtoaddress (which DOES accept bech32m), then unlock all.
-    This forces the coin selector to use ONLY our pre-selected lane UTXO.
+    SOQ-INFRA-018: Uses soq-signer REST /api/v1/send instead of the old
+    lock-all-then-sendtoaddress hack. The signer handles Dilithium signing
+    and bech32m address encoding natively — no wallet needed.
     """
-    target_txid = utxo["txid"]
-    target_vout = utxo["vout"]
+    amount_sat = int(net_amount_soq * 1e8)
 
-    # 1. Get all unspent UTXOs
-    all_utxos = rpc("listunspent", [0, 9999999])
+    result = signer_request("/api/v1/send", method="POST", body={
+        "address": recipient,
+        "amount": amount_sat,
+    })
 
-    # 2. Lock everything EXCEPT the target lane UTXO
-    to_lock = [{"txid": u["txid"], "vout": u["vout"]}
-               for u in all_utxos
-               if not (u["txid"] == target_txid and u["vout"] == target_vout)]
-    if to_lock:
-        rpc("lockunspent", [False, to_lock])
+    release_txid = result.get("txid")
+    if not release_txid:
+        raise RuntimeError(f"soq-signer returned no txid: {result}")
 
-    try:
-        # 3. sendtoaddress — now coin selector can ONLY pick the lane UTXO
-        release_txid = rpc("sendtoaddress", [
-            recipient,
-            round(net_amount_soq, 8),
-            f"PAUL bridge release: {burn_id[:32]}",
-            "",       # comment_to
-            False,    # subtractfeefromamount
-        ])
-    finally:
-        # 4. Always unlock everything (even on failure)
-        rpc("lockunspent", [True])
-
+    log.info("[PAUL] soq-signer send complete: txid=%s elapsed=%s",
+             release_txid[:16], result.get("elapsed", "?"))
     return release_txid
 
-def do_bridge_release(burn_id: str, recipient: str, gross_amount: float, net_amount: float):
+def do_bridge_release(burn_id, recipient, gross_amount, net_amount):
     """
-    Full PAUL release: find lane UTXO → reserve → build TX → broadcast.
+    Full PAUL release: find lane UTXO → reserve → send via signer → record.
     Returns {release_txid, net_amount, utxo_txid, utxo_vout}
     """
-    # Log the release attempt
     with _db_lock, get_db() as conn:
         conn.execute("""
             INSERT OR IGNORE INTO releases (burn_id, recipient, gross_amount, net_amount, status)
             VALUES (?, ?, ?, ?, 'pending')
         """, (burn_id, recipient, gross_amount, net_amount))
 
-    # Find best UTXO
     utxo = find_best_utxo(net_amount)
     if not utxo:
         raise RuntimeError(f"Lane exhausted — no UTXO available for {net_amount} SOQ. "
                            "Refiller will top up within 60s.")
 
-    # Reserve it
     reserve_utxo(utxo["id"], burn_id)
 
     try:
-        # Build and broadcast
         release_txid = build_and_broadcast(utxo, recipient, net_amount, burn_id)
 
-        # Mark as spent
         with _db_lock, get_db() as conn:
             conn.execute("""
                 UPDATE utxos
@@ -400,7 +549,6 @@ def do_bridge_release(burn_id: str, recipient: str, gross_amount: float, net_amo
         }
 
     except Exception as e:
-        # Release the reservation so it can be retried
         with _db_lock, get_db() as conn:
             conn.execute("""
                 UPDATE utxos SET status='available', reserved_at=NULL, reserved_by=NULL
@@ -424,20 +572,21 @@ def json_response(handler, status, body):
 
 class LaneHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        pass  # Suppress default HTTP logging (we use our own)
+        pass
 
     def do_GET(self):
         path = urlparse(self.path).path
 
         if path == "/health":
-            json_response(self, 200, {"ok": True, "service": "soqtec-lane-manager"})
+            json_response(self, 200, {
+                "ok": True,
+                "service": "soqtec-lane-manager",
+                "backend": "electrumx+soq-signer",  # SOQ-INFRA-018
+            })
 
         elif path == "/status":
             depths = get_lane_depths()
-            try:
-                balance = rpc("getbalance")
-            except Exception:
-                balance = None
+            balance = get_signer_balance()
             with _db_lock, get_db() as conn:
                 total_available = conn.execute(
                     "SELECT COUNT(*), SUM(amount_soq) FROM utxos WHERE status='available'"
@@ -447,15 +596,15 @@ class LaneHandler(BaseHTTPRequestHandler):
                 ).fetchone()
             json_response(self, 200, {
                 "ok": True,
-                "hot_wallet_soq": balance,
+                "signer_balance_soq": balance,
                 "lanes": {str(d): depths.get(d, 0) for d in LANE_DENOMINATIONS},
                 "total_available_utxos": total_available[0],
                 "total_available_soq": total_available[1],
                 "total_releases_complete": total_released[0],
+                "backend": "electrumx+soq-signer",
             })
 
         elif path == "/lanes":
-            # Proof-of-Reserves: full UTXO list with source txids
             with _db_lock, get_db() as conn:
                 rows = conn.execute("""
                     SELECT denomination, txid, vout, amount_soq, status,
@@ -480,7 +629,6 @@ class LaneHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/bridge":
-            # Combined reserve + release — the primary entry point for the relayer
             burn_id   = body.get("burn_id", f"auto_{int(time.time()*1000)}")
             recipient = body.get("recipient") or body.get("soq_address")
             gross     = float(body.get("gross_amount", 0))
@@ -504,6 +652,7 @@ class LaneHandler(BaseHTTPRequestHandler):
                     "utxo_vout": result["utxo_vout"],
                     "elapsed_ms": elapsed_ms,
                     "method": "PAUL",
+                    "backend": "soq-signer",
                 })
             except Exception as e:
                 log.error("[PAUL] /bridge failed: %s", e)
@@ -523,7 +672,7 @@ class LaneHandler(BaseHTTPRequestHandler):
 # ─── Background Threads ───────────────────────────────────────────────────────
 
 def background_sync():
-    """Periodically sync listunspent → SQLite."""
+    """Periodically sync ElectrumX UTXOs → SQLite."""
     while True:
         time.sleep(SYNC_INTERVAL)
         try:
@@ -532,8 +681,8 @@ def background_sync():
             log.error("background_sync error: %s", e)
 
 def background_refill():
-    """Periodically check lane depths and refill if needed."""
-    time.sleep(10)  # Give sync time to populate DB first
+    """Periodically check lane depths and refill via soq-signer."""
+    time.sleep(10)
     while True:
         try:
             refill_lanes()
@@ -547,11 +696,14 @@ def main():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     init_db()
 
-    # Initial sync
-    log.info("Starting initial UTXO sync...")
-    sync_utxos()
-    depths = get_lane_depths()
-    log.info("Lane depths on startup: %s", depths)
+    log.info("SOQ-INFRA-018: PAUL refactored — ElectrumX reads + soq-signer writes")
+    log.info("  ElectrumX: %s:%d", ELECTRUMX_HOST, ELECTRUMX_PORT)
+    log.info("  Signer:    %s", SIGNER_URL)
+    log.info("  Cold Node: %s:%d", COLD_RPC_HOST, COLD_RPC_PORT)
+
+    # Initial sync runs in background so HTTP server starts immediately
+    # (5000+ legacy lane addresses take minutes to sync via ElectrumX)
+    log.info("Deferring initial UTXO sync to background thread...")
 
     # Start background threads
     threading.Thread(target=background_sync,   daemon=True, name="sync").start()

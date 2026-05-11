@@ -391,6 +391,75 @@ export async function startApiServer(
   });
 
   // ──────────────────────────────────────────
+  // POST /api/bridge/psoq-to-usdsoq — Bridge pSOQ → USDSOQ
+  // ──────────────────────────────────────────
+  // User burns pSOQ on Solana, relayer mints USDSOQ on L1 via
+  // the `mintusdsoq` RPC (consensus-enforced, nAssetType=0x01).
+  //
+  // This is the "Quantum Express Stablecoin Lane" — pSOQ holders
+  // can bridge directly to a quantum-safe stablecoin.
+  //
+  // Patent refs: SOQ-P006 (Quantum Express), #64/047,929 (USDSOQ)
+  //
+  // Body: { "amount": 1000, "soqAddress": "ssq1p...", "solanaAddress": "Base58..." }
+  app.post('/api/bridge/psoq-to-usdsoq', async (req, res) => {
+    const { amount, soqAddress, solanaAddress } = req.body;
+
+    // Input validation
+    if (!soqAddress || typeof soqAddress !== 'string' || soqAddress.length < 20) {
+      return res.status(400).json({ ok: false, error: 'Invalid SOQ address' });
+    }
+    if (!solanaAddress || typeof solanaAddress !== 'string' || solanaAddress.length < 20) {
+      return res.status(400).json({ ok: false, error: 'Invalid Solana address' });
+    }
+    if (!amount || typeof amount !== 'number' || amount <= 0) {
+      return res.status(400).json({ ok: false, error: 'Invalid amount' });
+    }
+    if (amount < config.minTransferSoq) {
+      return res.status(400).json({ ok: false, error: `Minimum transfer: ${config.minTransferSoq} USDSOQ` });
+    }
+    if (amount > config.maxTransferSoq) {
+      return res.status(400).json({ ok: false, error: `Maximum transfer: ${config.maxTransferSoq} USDSOQ` });
+    }
+
+    // 0.1% bridge fee (min 1 USDSOQ)
+    const fee = Math.max(amount * 0.001, 1);
+    const netAmount = amount - fee;
+
+    try {
+      logger.info(`[Bridge] pSOQ→USDSOQ: ${amount} USDSOQ (net: ${netAmount}) → ${soqAddress} (from: ${solanaAddress})`);
+
+      // Mint USDSOQ on L1 via consensus RPC
+      const usdsoqTxid = await directMintUsdsoq(config, soqAddress, netAmount, solanaAddress);
+
+      // Enqueue for activity tracking
+      queue.enqueue({
+        direction: 'sol_to_soq' as any,
+        sourceTx: `usdsoq_bridge_${Date.now()}_${solanaAddress.slice(0, 8)}`,
+        amount: amount * 1e9,
+        destinationAddress: soqAddress,
+        timestamp: Date.now(),
+        status: 'completed',
+        destinationTx: usdsoqTxid,
+      });
+
+      logger.info(`[Bridge] ✅ pSOQ→USDSOQ complete: ${netAmount} USDSOQ → ${soqAddress} (txid: ${usdsoqTxid})`);
+
+      res.json({
+        ok: true,
+        soqTxid: usdsoqTxid,
+        netAmount,
+        fee,
+        asset: 'USDSOQ',
+        message: `Bridged ${netAmount.toLocaleString()} USDSOQ to your wallet`,
+      });
+    } catch (err: any) {
+      logger.error(`[Bridge] pSOQ→USDSOQ failed: ${err.message}`);
+      res.status(500).json({ ok: false, error: `USDSOQ bridge failed: ${err.message?.substring(0, 200) || 'unknown'}` });
+    }
+  });
+
+  // ──────────────────────────────────────────
   // POST /api/helius/burn-events — Helius Webhook Callback
   // ──────────────────────────────────────────
   // Called by Helius when a BURN transaction is detected on the
@@ -544,4 +613,57 @@ async function directSendToAddress(
     throw new Error(`RPC sendtoaddress error: ${rpcData.error.message}`);
   }
   return rpcData.result;
+}
+
+/**
+ * Mint USDSOQ via soq-signer (wallet-free, out-of-process Dilithium signing)
+ * 
+ * Creates a transparent output with nAssetType=0x01 on the Soqucoin L1.
+ * The soq-signer constructs the TX, signs with ML-DSA-44 (FIPS 204), and
+ * broadcasts via sendrawtransaction — no wallet mutex, no cs_wallet.
+ * 
+ * Replaces the deprecated `mintusdsoq` wallet RPC.
+ * Patent: #64/047,929 — USDSOQ Quantum-Safe Stablecoin
+ */
+async function directMintUsdsoq(
+  config: RelayerConfig,
+  soqAddress: string,
+  netAmount: number,
+  fromAddress: string,
+): Promise<string> {
+  const signerUrl = config.soqSignerUrl || 'http://64.23.129.28:8550';
+  const signerToken = config.soqSignerToken;
+
+  if (!signerToken) {
+    throw new Error('SOQ_SIGNER_TOKEN not configured — cannot mint USDSOQ');
+  }
+
+  // Convert SOQ decimal amount to satoshis (1 USDSOQ = 1e8 satoshis)
+  const amountSat = Math.round(netAmount * 1e8);
+
+  const response = await fetch(`${signerUrl}/api/v1/mint-usdsoq`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${signerToken}`,
+    },
+    body: JSON.stringify({
+      address: soqAddress,
+      amount: amountSat,
+      fee_rate: 10,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`soq-signer mint-usdsoq HTTP ${response.status}: ${text}`);
+  }
+
+  const result = await response.json() as any;
+  if (result.error) {
+    throw new Error(`soq-signer mint-usdsoq error: ${result.error}`);
+  }
+
+  console.log(`[usdsoq] Minted ${netAmount} USDSOQ → ${soqAddress} | txid=${result.txid} | elapsed=${result.elapsed}`);
+  return result.txid;
 }

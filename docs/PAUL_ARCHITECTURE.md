@@ -1,9 +1,16 @@
 # Quantum Express — PAUL / DUA / CEA Architecture
 *Soqucoin Labs Inc. — April 2026*
 
-> **Status:** PAUL DEPLOYED | DUA/CEA DEPLOYED | PAT Phase 2 pending
+> 🔴 **DEPRECATED — May 9, 2026**
+> PAUL (Pre-Allocated UTXO Lanes) has been **retired**. The root problem PAUL solved — wallet mutex contention causing 8-minute RPC timeouts — was eliminated by the soq-signer out-of-process signing architecture. Bridge releases now go directly through soq-signer via REST API (`/api/v1/send`), eliminating coin selection latency entirely.
+>
+> **Replacement:** Direct soq-signer + XMSS Vault CPI. See `DL-SOQTEC-BRIDGE-PHASE2-VAULT-CPI.md`.
+> **DUA/CEA pipeline remains active** — only the PAUL lane manager is retired.
+
+> ~~**Status:** PAUL DEPLOYED | DUA/CEA DEPLOYED | PAT Phase 2 pending~~
+> **Status:** PAUL RETIRED | DUA/CEA DEPLOYED | XMSS Vault CPI DEPLOYED
 > **Patent:** SOQ-P006 #64/035,873 (Filed March 31, 2026) — covers PAUL/DUA/CEA embodiments
-> **VPS:** `143.110.229.69` (soqucoin-stagenet) — Relayer + Lane Manager active
+> **VPS:** `143.110.229.69` — Relayer active, Lane Manager STOPPED
 
 ---
 

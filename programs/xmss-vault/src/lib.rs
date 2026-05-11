@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Mint, Transfer};
+use anchor_spl::token::{self, Token, TokenAccount, Mint, Transfer, Burn};
 use anchor_spl::associated_token::AssociatedToken;
+use soqtec_bridge::cpi as bridge_cpi;
+use soqtec_bridge::program::SoqtecBridge;
 
 pub mod errors;
 pub mod merkle;
@@ -218,6 +220,130 @@ pub mod xmss_vault {
         Ok(())
     }
 
+    /// Bridge out from XMSS vault — Atomic WOTS+ verified burn via CPI
+    ///
+    /// Patent Claim 4: Hybrid PQ Bridge with Hash-Based Custody
+    /// Patent Claim 11: Ed25519 NEVER touches value custody
+    ///
+    /// Flow:
+    ///   1. Verify WOTS+ signature + Merkle proof (hash-based PQ)
+    ///   2. CPI → bridge_program.burn_for_redemption (atomic burn)
+    ///   3. Increment leaf_index (irreversible on-chain enforcement)
+    ///
+    /// The vault PDA acts as the signer for the burn — the burn authority
+    /// is the vault itself, NOT an Ed25519 wallet. This is the core
+    /// innovation: value custody is entirely hash-based.
+    pub fn bridge_out_from_vault(
+        ctx: Context<BridgeOutFromVault>,
+        amount: u64,
+        leaf_index: u16,
+        wots_signature_flat: Vec<u8>,
+        merkle_proof_flat: Vec<u8>,
+        soq_address: [u8; 64],
+    ) -> Result<()> {
+        let vault = &ctx.accounts.vault;
+
+        // Safety checks
+        require!(vault.is_active, XmssError::VaultInactive);
+        require!(!vault.is_exhausted(), XmssError::VaultExhausted);
+        require!(leaf_index == vault.leaf_index, XmssError::LeafIndexMismatch);
+        require!(
+            ctx.accounts.bridge_state.key() == vault.bridge_authority,
+            XmssError::UnauthorizedBridge
+        );
+        require!(
+            wots_signature_flat.len() == NUM_CHAINS * HASH_LEN,
+            XmssError::InvalidSignatureLength
+        );
+        require!(
+            merkle_proof_flat.len() == (vault.tree_depth as usize) * FULL_HASH_LEN,
+            XmssError::ProofLengthMismatch
+        );
+
+        // Step 1: Construct the signed message
+        // The message binds: amount + bridge_state (as recipient) + leaf_index
+        let message = construct_withdrawal_message(
+            amount,
+            ctx.accounts.bridge_state.key().as_ref().try_into().unwrap(),
+            leaf_index,
+        );
+
+        // Step 2: Verify WOTS+ signature → recover public key hash
+        let mut sig_array = [[0u8; HASH_LEN]; NUM_CHAINS];
+        for i in 0..NUM_CHAINS {
+            sig_array[i].copy_from_slice(
+                &wots_signature_flat[i * HASH_LEN..(i + 1) * HASH_LEN]
+            );
+        }
+        let recovered_pk_hash = wots_verify(&message, &sig_array);
+
+        // Step 3: Verify Merkle proof — recovered key must be in the tree
+        let depth = vault.tree_depth as usize;
+        let mut merkle_proof = Vec::with_capacity(depth);
+        for i in 0..depth {
+            let mut sibling = [0u8; FULL_HASH_LEN];
+            sibling.copy_from_slice(
+                &merkle_proof_flat[i * FULL_HASH_LEN..(i + 1) * FULL_HASH_LEN]
+            );
+            merkle_proof.push(sibling);
+        }
+        verify_merkle_proof(
+            &recovered_pk_hash,
+            leaf_index,
+            &merkle_proof,
+            &vault.merkle_root,
+        )?;
+
+        // Step 4: CPI → burn_for_redemption on the bridge program
+        // The vault PDA signs the burn as the token authority
+        let merkle_root = vault.merkle_root;
+        let bump = vault.bump;
+        let seeds = &[
+            b"xmss-vault".as_ref(),
+            merkle_root.as_ref(),
+            &[bump],
+        ];
+        let signer = &[&seeds[..]];
+
+        // Build CPI context for bridge burn
+        let cpi_accounts = bridge_cpi::accounts::BurnForRedemption {
+            bridge_state: ctx.accounts.bridge_state.to_account_info(),
+            psoq_mint: ctx.accounts.psoq_mint.to_account_info(),
+            user_token_account: ctx.accounts.vault_token_account.to_account_info(),
+            user: ctx.accounts.vault.to_account_info(),
+            token_program: ctx.accounts.token_program.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.bridge_program.to_account_info(),
+            cpi_accounts,
+            signer,
+        );
+        bridge_cpi::burn_for_redemption(cpi_ctx, amount, soq_address)?;
+
+        // Step 5: Increment leaf index (irreversible — prevents key reuse)
+        let vault_key = ctx.accounts.vault.key();
+        let vault = &mut ctx.accounts.vault;
+        vault.leaf_index = vault.leaf_index.checked_add(1)
+            .ok_or(XmssError::MathOverflow)?;
+        vault.total_operations = vault.total_operations.checked_add(1)
+            .ok_or(XmssError::MathOverflow)?;
+
+        let remaining = vault.remaining_keys();
+        msg!("WOTS+ bridge-out: leaf={}, amount={}, remaining_keys={}",
+            leaf_index, amount, remaining);
+
+        emit!(BridgeOutEvent {
+            vault: vault_key,
+            leaf_index,
+            amount,
+            soq_address,
+            remaining_keys: remaining,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
+
     /// Query vault status (view function — returns info via msg!)
     pub fn vault_status(ctx: Context<VaultStatus>) -> Result<()> {
         let vault = &ctx.accounts.vault;
@@ -327,6 +453,35 @@ pub struct DepositToVault<'info> {
 }
 
 #[derive(Accounts)]
+pub struct BridgeOutFromVault<'info> {
+    #[account(
+        mut,
+        seeds = [b"xmss-vault", vault.merkle_root.as_ref()],
+        bump = vault.bump,
+        constraint = vault.owner == owner.key() @ XmssError::Unauthorized,
+    )]
+    pub vault: Account<'info, XmssVault>,
+
+    #[account(
+        mut,
+        constraint = vault_token_account.key() == vault.token_account @ XmssError::MintMismatch,
+    )]
+    pub vault_token_account: Account<'info, TokenAccount>,
+
+    // Bridge program accounts (for CPI)
+    /// CHECK: Bridge state PDA — validated against vault.bridge_authority
+    #[account(mut)]
+    pub bridge_state: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub psoq_mint: Account<'info, Mint>,
+
+    pub owner: Signer<'info>,  // Vault owner must sign (Ed25519 — fees only)
+    pub token_program: Program<'info, Token>,
+    pub bridge_program: Program<'info, SoqtecBridge>,
+}
+
+#[derive(Accounts)]
 pub struct VaultStatus<'info> {
     #[account(
         seeds = [b"xmss-vault", vault.merkle_root.as_ref()],
@@ -369,5 +524,15 @@ pub struct VaultDeposit {
     pub vault: Pubkey,
     pub depositor: Pubkey,
     pub amount: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct BridgeOutEvent {
+    pub vault: Pubkey,
+    pub leaf_index: u16,
+    pub amount: u64,
+    pub soq_address: [u8; 64],
+    pub remaining_keys: u16,
     pub timestamp: i64,
 }
