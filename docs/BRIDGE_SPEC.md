@@ -27,7 +27,7 @@ Every existing bridge (Wormhole, LayerZero, Axelar) secures its attestation laye
 | Axelar | ECDSA threshold | ❌ Broken by Shor's |
 | **SOQ-TEC** | **ML-DSA-44 (Dilithium)** | **✅ NIST FIPS 204** |
 
-Wormhole was hacked for $320M in 2022 because an attacker forged guardian signatures. With Dilithium attestations, this attack vector is eliminated — forging a SOQ-TEC attestation requires solving the Module-LWE problem, for which no quantum algorithm exists.
+While cross-chain infrastructure has historically suffered from smart contract validation bugs and custody exploits, the SOQ-TEC gateway focuses on cryptographic longevity. By utilizing Dilithium signatures, the attestation layer is mathematically secured against quantum decryption. Forging a SOQ-TEC attestation would require solving the Module-LWE (Learning with Errors) problem, which is designed to resist quantum computing attacks that threaten classical ECDSA and Ed25519 signatures.
 
 ---
 

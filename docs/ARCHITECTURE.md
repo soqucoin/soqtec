@@ -8,7 +8,7 @@
 
 SOQ-TEC is a bidirectional cross-chain bridge connecting Solana (classical Ed25519) to Soqucoin L1 (NIST FIPS 204 ML-DSA-44 Dilithium). It provides quantum-safe custody for Solana-native assets by enabling users to bridge value into a post-quantum L1 for long-term storage, and bridge back when speed and liquidity are needed.
 
-**Core innovation:** SOQ-TEC is the first cross-chain bridge with a **fully post-quantum attestation layer**. Relayer validators sign attestations with ML-DSA-44 (Dilithium), not Ed25519 or ECDSA. No attacker — classical or quantum — can forge bridge attestations without breaking NIST FIPS 204.
+**Core innovation:** SOQ-TEC is the first cross-chain bridge with a **fully post-quantum attestation layer**. Relayer validators sign attestations with ML-DSA-44 (Dilithium), not Ed25519 or ECDSA. No attacker (classical or quantum) can forge bridge attestations without breaking NIST FIPS 204.
 
 ---
 
@@ -65,7 +65,7 @@ SOQ-TEC is a bidirectional cross-chain bridge connecting Solana (classical Ed255
 │                                                                     │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │                   SOQ-TEC TERMINAL (Web)                       │  │
-│  │   Dashboard — vault balance, bridge activity, PoR, security   │  │
+│  │   Dashboard: vault balance, bridge activity, PoR, security    │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -126,8 +126,8 @@ The off-chain service that watches both chains and coordinates quantum-secure at
 **Validator Key Architecture:**
 
 Each validator holds two keypairs:
-- **ML-DSA-44 (Dilithium)** — used for ALL attestation signing. This is the trust anchor.
-- **Ed25519** — used ONLY for submitting raw transactions to Solana (Solana's requirement). NOT used for attestation.
+- **ML-DSA-44 (Dilithium)**: used for ALL attestation signing. This is the trust anchor.
+- **Ed25519**: used ONLY for submitting raw transactions to Solana (Solana's requirement). NOT used for attestation.
 
 **Attestation Flow:**
 
@@ -141,7 +141,7 @@ Each validator holds two keypairs:
 
 **Why Dilithium, not Ed25519?**
 
-The attestation signature is the *trust anchor* of the bridge. If an attacker can forge an attestation, they can mint arbitrary pSOQ or release arbitrary SOQ — draining the bridge. This is exactly how Wormhole was hacked for $320M (forged ECDSA guardian signature). With Dilithium attestations, forging requires breaking Module-LWE, which is quantum-resistant.
+The attestation signature is the *trust anchor* of the gateway. If an attacker can obtain or bypass attestation signatures, they can mint arbitrary pSOQ or release arbitrary SOQ, draining the vault. While cross-chain infrastructure has historically suffered from smart contract validation bugs and custody exploits, the SOQ-TEC gateway focuses on cryptographic longevity. By using Dilithium signatures, the attestation layer is secured against future quantum computing attacks that would compromise classical elliptic curve signatures (ECDSA and Ed25519).
 
 ### 3. Soqucoin Vault (C++)
 
@@ -156,7 +156,7 @@ OP_3 <pubkey1> <pubkey2> <pubkey3> <pubkey4> <pubkey5> OP_5 OP_CHECKMULTISIG
 - All vault operations require 3-of-5 Dilithium validator signatures
 - Dilithium keys are **reusable** (unlike Winternitz one-time keys)
 - 240-block maturity requirement before release (replay protection)
-- UTXO-based — deterministic, auditable state
+- UTXO-based, providing a deterministic and auditable state
 
 ### 4. SOQ-TEC Terminal (Web Dashboard)
 
@@ -203,7 +203,7 @@ Static HTML/CSS/JS dashboard with Pip-Boy CRT aesthetic.
 └──────────┘   └──────────────────┘   └──────────────┘   └────────────┘
 ```
 
-The only non-PQ component is Solana's own transaction signing (Ed25519) — which is Solana's constraint, not SOQ-TEC's. The bridge's trust chain is fully quantum-secure.
+The only non-PQ component is Solana's own transaction signing (Ed25519), which is Solana's constraint rather than SOQ-TEC's. The bridge's trust chain is fully quantum-secure.
 
 > *Diagram current as of v1.0.0. Updated E2E attestation flow diagram is in progress.*
 
@@ -223,7 +223,7 @@ The only non-PQ component is Solana's own transaction signing (Ed25519) — whic
 
 ## Comparison with Winternitz (SIMD-0075)
 
-SOQ-TEC does not compete with Winternitz — it complements it.
+SOQ-TEC does not compete with Winternitz; rather, it complements it.
 
 | Property | Winternitz Vault | SOQ-TEC |
 |----------|-----------------|---------|
@@ -253,6 +253,6 @@ SOQ-TEC does not compete with Winternitz — it complements it.
 
 ## Future: LatticeFold+ L2
 
-Soqucoin's Layer 2 (LatticeFold+ recursive verification) is on the roadmap to bring high-throughput PQ transactions to the ecosystem. When shipped, bridge settlements can occur on L2 with sub-second finality while maintaining full quantum security — giving users both speed AND quantum safety without leaving the Soqucoin ecosystem.
+Soqucoin's Layer 2 (LatticeFold+ recursive verification) is on the roadmap to bring high-throughput PQ transactions to the ecosystem. When shipped, bridge settlements can occur on L2 with sub-second finality while maintaining full quantum security, giving users both speed AND quantum safety without leaving the Soqucoin ecosystem.
 
 For the hackathon, the honest pitch is: **security for storage, speed when you bridge back to Solana.**
