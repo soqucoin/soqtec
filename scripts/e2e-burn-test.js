@@ -33,7 +33,7 @@ async function main() {
   const keypair = Keypair.fromSecretKey(Uint8Array.from(keypairData));
   const wallet = new anchor.Wallet(keypair);
 
-  const connection = new Connection('https://devnet.helius-rpc.com/?api-key=ea8d9de9-6ac5-429b-8225-4bc669e0c8d3', 'confirmed');
+  const connection = new Connection('https://api.devnet.solana.com', 'confirmed');
   const provider = new anchor.AnchorProvider(connection, wallet, { commitment: 'confirmed' });
   const program = new anchor.Program(idl, provider);
 

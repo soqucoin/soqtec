@@ -18,7 +18,7 @@ const CONFIG = {
     explorerApi: 'https://xplorer.soqu.org',
     
     // Solana RPC
-    solanaRpc: 'https://devnet.helius-rpc.com/?api-key=ea8d9de9-6ac5-429b-8225-4bc669e0c8d3',
+    solanaRpc: 'https://api.devnet.solana.com',
     
     // Refresh intervals
     dataRefreshMs: 15000,     // 15s for live data

@@ -17,7 +17,7 @@ const path = require("path");
 
 const BRIDGE_PROGRAM_ID = new PublicKey("9pCJxjVF8VTizZ9RZZLTu997y2DafWgUGqYbrNiqPw36");
 const NEW_MINT = new PublicKey("6gk5DxEkFXszk2naw9JpZa9DPy5XG9fBGBwfhhS1mMS6");
-const DEVNET_URL = "https://devnet.helius-rpc.com/?api-key=ea8d9de9-6ac5-429b-8225-4bc669e0c8d3";
+const DEVNET_URL = "https://api.devnet.solana.com";
 
 async function main() {
   console.log("=== SET BRIDGE MINT ===");

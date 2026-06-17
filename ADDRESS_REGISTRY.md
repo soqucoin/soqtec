@@ -49,7 +49,7 @@
 
 | Env | URL |
 |-----|-----|
-| **Devnet (Helius)** | `https://devnet.helius-rpc.com/?api-key=ea8d9de9-6ac5-429b-8225-4bc669e0c8d3` |
+| **Devnet (Helius)** | `https://devnet.helius-rpc.com/?api-key=REDACTED_ROTATED_KEY` |
 
 ---
 
