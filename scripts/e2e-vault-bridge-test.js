@@ -36,7 +36,7 @@ const xmss = require("./xmss-client");
 const VAULT_PROGRAM_ID = new PublicKey("7k4TwwBSZ4a7JA83MgSsqxczU6bpR7qV3uUNGWbTEz8H");
 const BRIDGE_PROGRAM_ID = new PublicKey("9pCJxjVF8VTizZ9RZZLTu997y2DafWgUGqYbrNiqPw36");
 const PSOQ_MINT = new PublicKey("7TCU5SnLR7ARRAd8aUdoAFgw9zvCvzwdphm7TjUT6s46");
-const DEVNET_URL = "https://devnet.helius-rpc.com/?api-key=ea8d9de9-6ac5-429b-8225-4bc669e0c8d3";
+const DEVNET_URL = "https://api.devnet.solana.com";
 const TREE_DEPTH = 4; // 16 signatures
 
 // Soqucoin destination address (Dilithium bech32m)

@@ -175,8 +175,8 @@ export class DUAEventRouter {
       return;
     }
 
-    // 🚀 RELEASE: burn meets confidence policy
-    logger.info(`[DUA] 🔥 ${event.chain}: BURN → RELEASE`);
+    // RELEASE: burn meets confidence policy
+    logger.info(`[DUA] ${event.chain}: BURN → RELEASE`);
     logger.info(`  burn_tx:   ${event.burnTxId.slice(0, 24)}...`);
     logger.info(`  recipient: ${event.recipientSoq}`);
     logger.info(`  amount:    ${Number(event.netAmountSoq) / 1e9} SOQ`);
@@ -201,7 +201,7 @@ export class DUAEventRouter {
       record.releaseTxId = paulResult.release_txid;
       record.releaseMethod = 'paul';
       record.releasedAt = Date.now();
-      logger.info(`[DUA] ✅ PAUL release: ${paulResult.release_txid} (${paulResult.elapsed_ms}ms)`);
+      logger.info(`[DUA] PAUL release: ${paulResult.release_txid} (${paulResult.elapsed_ms}ms)`);
     } catch (paulErr: any) {
       // PAUL failed (no matching lane UTXO?) — fall back to direct send
       logger.warn(`[DUA] PAUL unavailable: ${paulErr.message} — falling back to direct send`);
@@ -210,9 +210,9 @@ export class DUAEventRouter {
         record.releaseTxId = txid;
         record.releaseMethod = 'direct';
         record.releasedAt = Date.now();
-        logger.info(`[DUA] ✅ Direct release: ${txid}`);
+        logger.info(`[DUA] Direct release: ${txid}`);
       } catch (directErr: any) {
-        logger.error(`[DUA] ❌ BOTH release methods failed for ${event.burnTxId.slice(0, 16)}...`);
+        logger.error(`[DUA] BOTH release methods failed for ${event.burnTxId.slice(0, 16)}...`);
         logger.error(`  PAUL: ${paulErr.message}`);
         logger.error(`  Direct: ${directErr.message}`);
       }
@@ -302,13 +302,13 @@ export class DUAEventRouter {
   /** Halt all releases (Trigger Class B/C/D) */
   halt(reason: string): void {
     this.halted = true;
-    logger.error(`[DUA] 🛑 CIRCUIT BREAKER ACTIVATED: ${reason}`);
+    logger.error(`[DUA] CIRCUIT BREAKER ACTIVATED: ${reason}`);
   }
 
   /** Resume releases after manual investigation */
   resume(): void {
     this.halted = false;
-    logger.info(`[DUA] ✅ Circuit breaker reset — releases resumed`);
+    logger.info(`[DUA] Circuit breaker reset — releases resumed`);
     // Process any pending releases
     const pending = this.releases.filter(r => r.releaseMethod === 'pending');
     logger.info(`[DUA] ${pending.length} pending releases queued for processing`);

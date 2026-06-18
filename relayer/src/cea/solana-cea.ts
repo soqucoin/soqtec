@@ -164,7 +164,7 @@ export class SolanaCEA implements ChainEventAdapter {
         logger.info(`[CEA:Solana] Parsing tx: ${sig.signature.slice(0, 24)}...`);
         const event = await this.parseTransaction(sig.signature);
         if (event) {
-          logger.info(`[CEA:Solana] 🔥 BURN EVENT DETECTED: ${event.netAmountSoq} → ${event.recipientSoq.slice(0, 20)}...`);
+          logger.info(`[CEA:Solana] BURN EVENT DETECTED: ${event.netAmountSoq} → ${event.recipientSoq.slice(0, 20)}...`);
           burns.push(event);
         } else {
           logger.info(`[CEA:Solana] Not a burn event — skipped`);
