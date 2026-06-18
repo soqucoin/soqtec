@@ -39,13 +39,13 @@ ELECTRUMX_PORT = int(os.environ.get("PAUL_ELECTRUMX_PORT", "50001"))
 
 # soq-signer (writes — send transactions, get addresses)
 SIGNER_URL   = os.environ.get("SOQ_SIGNER_URL", "http://64.23.129.28:8550")
-SIGNER_TOKEN = os.environ.get("SOQ_SIGNER_TOKEN", "soqsigner-hot-wallet-bearer-2026-staging")
+SIGNER_TOKEN = os.environ.get("SOQ_SIGNER_TOKEN", "")  # secret: env-only, no hardcoded default
 
 # Cold node RPC (non-wallet calls only: validateaddress, getblockcount)
 COLD_RPC_HOST = os.environ.get("PAUL_COLD_HOST", "127.0.0.1")
 COLD_RPC_PORT = int(os.environ.get("PAUL_COLD_PORT", "38332"))
 COLD_RPC_USER = os.environ.get("PAUL_COLD_USER", "soqucoin")
-COLD_RPC_PASS = os.environ.get("PAUL_COLD_PASS", "stagenet_services_2026_secure")
+COLD_RPC_PASS = os.environ.get("PAUL_COLD_PASS", "")  # secret: env-only, no hardcoded default
 
 LANE_DENOMINATIONS = [10, 50, 100, 500, 1000, 5000, 10000]  # SOQ
 MIN_LANE_DEPTH     = 2      # UTXOs per denomination (trigger refill)

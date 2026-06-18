@@ -1,0 +1,55 @@
+title = "Soqucoin secret-gate (soqtec relayer)"
+
+# Inherit gitleaks' default rules (AWS/GCP/Stripe/JWT/SSH/private-keys/etc.)
+[extend]
+useDefault = true
+
+# --- Soqucoin-specific secret shapes ---
+
+[[rules]]
+id = "soq-signer-bearer"
+description = "soq-signer hot-wallet bearer token"
+regex = '''soqsigner-[A-Za-z0-9-]*bearer[A-Za-z0-9-]*'''
+tags = ["soqucoin", "custody"]
+
+[[rules]]
+id = "rpc-provider-key"
+description = "Helius/Alchemy/Infura/QuickNode RPC API key"
+regex = '''(?i)(helius|alchemy|infura|quicknode)[a-z0-9_.-]*["'=: ]+[a-f0-9]{8}-?[a-f0-9]{4}-?[a-f0-9]{4,}'''
+tags = ["soqucoin", "third-party"]
+
+[[rules]]
+id = "soq-rpcpassword"
+description = "soqucoind rpcpassword literal (placeholders excluded via allowlist.regexes)"
+regex = '''(?i)rpcpassword\s*=\s*['"]?[^\s'"]{8,}'''
+tags = ["soqucoin", "node"]
+
+[allowlist]
+description = "Tests, fixtures, docs, and env templates (false positives)"
+paths = [
+  '''(^|/)test/''',
+  '''(^|/)tests/''',
+  '''(^|/)__tests__/''',
+  '''(^|/)__mocks__/''',
+  '''(^|/)fixtures?/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''\.example$''',
+  '''\.env\.example$''',
+  '''(^|/)docs?/''',
+  '''token-info\.json$''',          # Solana *public* token/authority addresses, not secrets
+  '''(^|/)demo-playback\.html$''',  # scripted demo animation (truncated illustrative key bytes)
+]
+regexes = [
+  '''(?i)change_me''',
+  '''__ENV__''',
+  '''(?i)placeholder''',
+  '''(?i)your[_-]?(password|api[_-]?key|token|secret)''',
+  '''<[^>]*>''',
+  '''&lt;''',
+  '''\{[A-Za-z_][A-Za-z0-9_.]*\}''',
+  '''\$\{?[A-Za-z_]''',
+  '''(?i)\b(password|secret|example|test|dummy)\b''',
+  '''process\.env''',
+  '''getenv''',
+]
