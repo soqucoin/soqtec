@@ -113,7 +113,7 @@ export class SoqucoinWatcher {
             };
 
             this.deposits.push(deposit);
-            logger.info(`[Soqucoin] 🔒 Vault deposit: ${deposit.amount} SOQ in tx ${deposit.txid.slice(0, 16)}...`);
+            logger.info(`[Soqucoin] Vault deposit: ${deposit.amount} SOQ in tx ${deposit.txid.slice(0, 16)}...`);
 
             // Queue pSOQ mint on Solana (only after 6 confirmations)
             // For now, queue immediately — confirmation check happens in queue processor

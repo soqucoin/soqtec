@@ -263,7 +263,7 @@ export async function startApiServer(
           const paulData = await paulResp.json() as any;
           if (paulData.ok) {
             soqTxid = paulData.release_txid;
-            logger.info(`[Bridge] ⚡ PAUL release: ${soqTxid} (${paulData.elapsed_ms}ms)`);
+            logger.info(`[Bridge] PAUL release: ${soqTxid} (${paulData.elapsed_ms}ms)`);
           } else {
             throw new Error(paulData.error || 'PAUL unavailable');
           }
@@ -288,7 +288,7 @@ export async function startApiServer(
         destinationTx: soqTxid,
       });
 
-      logger.info(`[Bridge] ✅ pSOQ→SOQ complete: ${netAmount} SOQ → ${soqAddress} (txid: ${soqTxid})`);
+      logger.info(`[Bridge] pSOQ→SOQ complete: ${netAmount} SOQ → ${soqAddress} (txid: ${soqTxid})`);
 
       res.json({
         ok: true,
@@ -375,7 +375,7 @@ export async function startApiServer(
         destinationTx: signature,
       });
 
-      logger.info(`[Bridge] ✅ SOQ→pSOQ complete: ${netAmount} pSOQ → ${solanaAddress} (sig: ${signature})`);
+      logger.info(`[Bridge] SOQ→pSOQ complete: ${netAmount} pSOQ → ${solanaAddress} (sig: ${signature})`);
 
       res.json({
         ok: true,
@@ -443,7 +443,7 @@ export async function startApiServer(
         destinationTx: usdsoqTxid,
       });
 
-      logger.info(`[Bridge] ✅ pSOQ→USDSOQ complete: ${netAmount} USDSOQ → ${soqAddress} (txid: ${usdsoqTxid})`);
+      logger.info(`[Bridge] pSOQ→USDSOQ complete: ${netAmount} USDSOQ → ${soqAddress} (txid: ${usdsoqTxid})`);
 
       res.json({
         ok: true,
@@ -533,7 +533,7 @@ export async function startApiServer(
 
     const reason = req.body?.reason || 'Manual halt via API';
     duaRouter.halt(reason);
-    logger.error(`[API] 🛑 DUA HALTED by API: ${reason}`);
+    logger.error(`[API] DUA HALTED by API: ${reason}`);
     res.json({ ok: true, halted: true, reason });
   });
 
@@ -547,7 +547,7 @@ export async function startApiServer(
     }
 
     duaRouter.resume();
-    logger.info('[API] ✅ DUA resumed by API');
+    logger.info('[API] DUA resumed by API');
     res.json({ ok: true, halted: false });
   });
 

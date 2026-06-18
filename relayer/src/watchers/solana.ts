@@ -138,7 +138,7 @@ export class SolanaWatcher {
 
           this.burnEvents.push(burnEvent);
           
-          logger.info(`[Solana] 🔥 BURN DETECTED`);
+          logger.info(`[Solana] BURN DETECTED`);
           logger.info(`  User:      ${burnEvent.user.slice(0, 16)}...`);
           logger.info(`  Amount:    ${burnEvent.amount / 1e9} pSOQ`);
           logger.info(`  Net:       ${burnEvent.netAmount / 1e9} SOQ (0.1% fee)`);
