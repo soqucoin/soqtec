@@ -13,7 +13,7 @@ Port:   3003 (localhost only — behind nginx if needed)
 
 SOQ-INFRA-018: Refactored to use ElectrumX + soq-signer.
   - Reads (UTXO queries, balance): ElectrumX on 127.0.0.1:50001
-  - Writes (send, address gen):    soq-signer REST on 64.23.129.28:8550
+  - Writes (send, address gen):    soq-signer REST (SOQ_SIGNER_URL)
   - NO hot wallet dependency.      soqucoind-hot can be decommissioned.
 """
 
@@ -38,8 +38,6 @@ ELECTRUMX_HOST = os.environ.get("PAUL_ELECTRUMX_HOST", "127.0.0.1")
 ELECTRUMX_PORT = int(os.environ.get("PAUL_ELECTRUMX_PORT", "50001"))
 
 # soq-signer (writes — send transactions, get addresses)
-SIGNER_URL   = os.environ.get("SOQ_SIGNER_URL", "http://64.23.129.28:8550")
-SIGNER_TOKEN = os.environ.get("SOQ_SIGNER_TOKEN", "")  # secret: env-only, no hardcoded default
 
 # Cold node RPC (non-wallet calls only: validateaddress, getblockcount)
 COLD_RPC_HOST = os.environ.get("PAUL_COLD_HOST", "127.0.0.1")

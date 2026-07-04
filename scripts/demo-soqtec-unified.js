@@ -40,7 +40,7 @@ const DECIMALS          = 9;
 const SOQ_DESTINATION   = 'sq1pwfwfed7jvfz68h030xskg72xptfun0cc4y7qyyd75jhvlmu3klmq9xj24p';
 
 // PAUL endpoint for L1 release
-const PAUL_ENDPOINT     = process.env.PAUL_ENDPOINT || 'http://143.110.229.69:3003';
+const PAUL_ENDPOINT     = process.env.PAUL_ENDPOINT || 'http://127.0.0.1:3003';
 
 // ── Display helpers ──────────────────────────────────────
 const G = '\x1b[32m', R = '\x1b[31m', Y = '\x1b[33m', C = '\x1b[36m';

@@ -10,7 +10,7 @@
 > ~~**Status:** PAUL DEPLOYED | DUA/CEA DEPLOYED | PAT Phase 2 pending~~
 > **Status:** PAUL RETIRED | DUA/CEA DEPLOYED | XMSS Vault CPI DEPLOYED
 > **Patent:** SOQ-P006 #64/035,873 (Filed March 31, 2026) — covers PAUL/DUA/CEA embodiments
-> **VPS:** `143.110.229.69` — Relayer active, Lane Manager STOPPED
+> **VPS:** `<your-vps-ip>` — Relayer active, Lane Manager STOPPED
 
 ---
 
@@ -270,7 +270,7 @@ The trust model difference is small: PAUL relies on relayer quorum (2-of-3), sam
 ### Recommended Path: PAUL + DUA/CEA ← **THIS IS LIVE**
 
 ```
-VPS 143.110.229.69 (soqucoin-stagenet)
+VPS <your-vps-ip> (soqucoin-stagenet)
 ├── soqtec-relayer (v0.2.0)        port 3001
 │   ├── Legacy watchers (Solana/Soqucoin poll)
 │   ├── DUA/CEA pipeline (SolanaCEA → DUA Router)

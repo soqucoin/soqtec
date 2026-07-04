@@ -41,6 +41,6 @@ keypair.json
 logs/
 *.log
 
-# AI agent files
+# Agent config files (local only)
 GEMINI.md
 .gemini/

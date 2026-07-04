@@ -85,7 +85,7 @@ export function loadConfig(): RelayerConfig {
     usdsoqMintRpcPass: process.env.USDSOQ_MINT_RPC_PASS || process.env.SOQUCOIN_RPC_PASS || '',
 
     // soq-signer: wallet-free signing service (Broadcast Node VPS)
-    soqSignerUrl: process.env.SOQ_SIGNER_URL || 'http://64.23.129.28:8550',
+    soqSignerUrl: process.env.SOQ_SIGNER_URL || 'http://127.0.0.1:8550',
     soqSignerToken: process.env.SOQ_SIGNER_TOKEN || '',
 
     // Read-path: cold node for chain data (no wallet mutex)

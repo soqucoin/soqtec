@@ -631,7 +631,7 @@ async function directMintUsdsoq(
   netAmount: number,
   fromAddress: string,
 ): Promise<string> {
-  const signerUrl = config.soqSignerUrl || 'http://64.23.129.28:8550';
+  const signerUrl = config.soqSignerUrl || 'http://127.0.0.1:8550';
   const signerToken = config.soqSignerToken;
 
   if (!signerToken) {
