@@ -84,6 +84,10 @@ export interface MintRecord {
   attempts: number;
   lastError?: string;
   mintTxid?: string;
+  /** When the mint tx actually broadcast (daily-cap accounting) */
+  mintedAt?: number;
+  /** When the BTC release actually broadcast (daily-cap accounting) */
+  releasedAt?: number;
   /** Redemption linkage */
   redeemIntentId?: string;
   receiptSpendTxid?: string;

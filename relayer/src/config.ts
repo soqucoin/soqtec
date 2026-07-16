@@ -3,6 +3,7 @@
  */
 
 import dotenv from 'dotenv';
+import { join } from 'path';
 dotenv.config();
 
 export interface RelayerConfig {
@@ -93,6 +94,9 @@ export interface BtcsoqSettings {
   soqRpcUser: string;
   soqRpcPass: string;
   attestationAddress: string;
+  maxDailyMintSats: number;
+  maxDailyReleaseSats: number;
+  pauseFile: string;
 }
 
 export function loadConfig(): RelayerConfig {
@@ -195,5 +199,11 @@ function loadBtcsoqSettings(): BtcsoqSettings {
     soqRpcPass: process.env.BTCSOQ_SOQ_RPC_PASS || process.env.COLD_NODE_RPC_PASS || process.env.SOQUCOIN_RPC_PASS || '',
     // Dilithium-signed event feed; key lives in the gateway signer keystore
     attestationAddress: process.env.BTCSOQ_ATTESTATION_ADDRESS || '',
+    // Circuit breaker: rolling-24h ceilings (0 = unlimited) + pause file.
+    // Demo posture: cap a runaway lane at ~0.05 BTC/day each direction.
+    maxDailyMintSats: parseInt(process.env.BTCSOQ_MAX_DAILY_MINT_SATS || '5000000'),
+    maxDailyReleaseSats: parseInt(process.env.BTCSOQ_MAX_DAILY_RELEASE_SATS || '5000000'),
+    pauseFile: process.env.BTCSOQ_PAUSE_FILE ||
+      join(process.env.BTCSOQ_DATA_DIR || './btcsoq-data', 'PAUSE'),
   };
 }

@@ -16,6 +16,7 @@
  */
 
 import { randomUUID } from 'crypto';
+import { existsSync } from 'fs';
 import { BitcoinCEA, BitcoinCEAConfig } from '../cea/bitcoin-cea';
 import { NormalizedBurnEvent, BurnConfidence } from '../cea/types';
 import { GatewayStore, BtcIntent, DepositRecord, MintRecord } from './store';
@@ -53,6 +54,13 @@ export interface BtcsoqConfig extends BitcoinCEAConfig {
   soqRpcPass: string;
   /** Attestation signing key (in the gateway signer keystore); empty = feed off */
   attestationAddress: string;
+  // ── Circuit breaker (Day 4) ──
+  /** Rolling 24h mint ceiling in sats (0 = unlimited) */
+  maxDailyMintSats: number;
+  /** Rolling 24h release ceiling in sats (0 = unlimited) */
+  maxDailyReleaseSats: number;
+  /** Pause switch: while this file exists, mints and releases are deferred */
+  pauseFile: string;
 }
 
 /** How often stuck 'minting'/'redeeming' records are re-driven. */
@@ -428,6 +436,14 @@ export class BtcsoqGateway {
    */
   private async attemptMint(rec: MintRecord): Promise<string | null> {
     if (this.mintingInFlight.has(rec.key)) return null;
+    // Breaker: defer, never fail — the record stays 'minting' and the tick
+    // retries once the pause lifts / the 24h window frees up. The chain
+    // recovery check still runs first on the retry, so nothing double-mints.
+    const deferral = this.mintBreakerReason(rec.sats);
+    if (deferral) {
+      logger.warn(`[BTCSOQ] MINT deferred for ${rec.key.slice(0, 20)}...: ${deferral}`);
+      return null;
+    }
     this.mintingInFlight.add(rec.key);
     try {
       const payload = Buffer.from(rec.opReturnHex, 'hex');
@@ -465,6 +481,7 @@ export class BtcsoqGateway {
   private async finalizeMint(rec: MintRecord, mintTxid: string): Promise<string> {
     rec.status = 'minted';
     rec.mintTxid = mintTxid;
+    rec.mintedAt = rec.mintedAt ?? Date.now();
     rec.lastError = undefined;
     await this.store.putMint(rec);
 
@@ -569,6 +586,72 @@ export class BtcsoqGateway {
     };
   }
 
+  // ── Circuit breaker ────────────────────────────────────
+
+  /** Set when PoR inverts (outstanding > vault) — mints halt, releases continue. */
+  private porHalted: boolean = false;
+
+  /** Manual pause: the file's existence is the switch (touch to halt, rm to resume). */
+  private isPaused(): boolean {
+    try {
+      return !!this.config.pauseFile && existsSync(this.config.pauseFile);
+    } catch {
+      return false;
+    }
+  }
+
+  private dailyMintedSats(): number {
+    const cutoff = Date.now() - 24 * 3600_000;
+    return this.store.listMints()
+      .filter((m) => m.mintedAt && m.mintedAt > cutoff)
+      .reduce((s, m) => s + m.sats, 0);
+  }
+
+  private dailyReleasedSats(): number {
+    const cutoff = Date.now() - 24 * 3600_000;
+    return this.store.listMints()
+      .filter((m) => m.releasedAt && m.releasedAt > cutoff)
+      .reduce((s, m) => s + m.sats, 0);
+  }
+
+  /** null = clear to mint `sats`; string = deferral reason (retried by the tick). */
+  private mintBreakerReason(sats: number): string | null {
+    if (this.isPaused()) return 'gateway paused (pause file present)';
+    if (this.porHalted) return 'PoR halt: outstanding receipts exceed vault';
+    if (this.config.maxDailyMintSats > 0 &&
+        this.dailyMintedSats() + sats > this.config.maxDailyMintSats) {
+      return `daily mint cap: ${this.dailyMintedSats()} + ${sats} > ${this.config.maxDailyMintSats} sats/24h`;
+    }
+    return null;
+  }
+
+  private releaseBreakerReason(sats: number): string | null {
+    if (this.isPaused()) return 'gateway paused (pause file present)';
+    if (this.config.maxDailyReleaseSats > 0 &&
+        this.dailyReleasedSats() + sats > this.config.maxDailyReleaseSats) {
+      return `daily release cap: ${this.dailyReleasedSats()} + ${sats} > ${this.config.maxDailyReleaseSats} sats/24h`;
+    }
+    return null;
+  }
+
+  /** PoR invariant check — runs every money tick. Vault must cover outstanding. */
+  private async checkPorInvariant(): Promise<void> {
+    try {
+      const vault = await this.cea.getVaultBalance();
+      const outstanding = this.store.listMints()
+        .filter((m) => m.status === 'minted' || m.status === 'minting')
+        .reduce((s, m) => s + m.sats, 0);
+      const covered = Number(vault.confirmedSats) + Number(vault.pendingSats) >= outstanding;
+      if (!covered && !this.porHalted) {
+        this.porHalted = true;
+        logger.error(`[BTCSOQ] CIRCUIT BREAKER: PoR VIOLATION — outstanding ${outstanding} sats > vault ${vault.confirmedSats}+${vault.pendingSats}. MINTS HALTED (releases continue; they reduce exposure). Manual investigation required.`);
+      } else if (covered && this.porHalted) {
+        this.porHalted = false;
+        logger.warn('[BTCSOQ] PoR invariant restored — mint halt lifted');
+      }
+    } catch { /* vault unreadable — keep current state, next tick retries */ }
+  }
+
   // ── Money loop (mint retry / recovery / redemption / release) ──
 
   /**
@@ -581,6 +664,7 @@ export class BtcsoqGateway {
     if (this.moneyLoopRunning) return;
     this.moneyLoopRunning = true;
     try {
+      await this.checkPorInvariant();
       // Deposits that confirmed but never got a mint claim
       for (const intent of this.store.listIntents()) {
         if (intent.kind === 'deposit' && intent.status === 'confirmed' &&
@@ -713,6 +797,14 @@ export class BtcsoqGateway {
       return;
     }
 
+    // Breaker: defer, never fail — the record stays 'redeeming' and the tick
+    // retries. The wallet-history check still runs first on every retry.
+    const deferral = this.releaseBreakerReason(rec.sats);
+    if (deferral) {
+      logger.warn(`[BTCSOQ] RELEASE deferred for ${rec.key.slice(0, 20)}...: ${deferral}`);
+      return;
+    }
+
     try {
       const comment = `redeem:${intent.id}`;
 
@@ -745,6 +837,7 @@ export class BtcsoqGateway {
   private async finalizeRelease(rec: MintRecord, intent: BtcIntent, releaseTxid: string): Promise<void> {
     rec.status = 'redeemed';
     rec.releaseTxid = releaseTxid;
+    rec.releasedAt = rec.releasedAt ?? Date.now();
     rec.lastError = undefined;
     await this.store.putMint(rec);
 
@@ -826,6 +919,14 @@ export class BtcsoqGateway {
       network: this.config.network,
       healthy: this.cea.isHealthy(),
       moneyLoop: this.moneyLoopEnabled(),
+      breaker: {
+        paused: this.isPaused(),
+        porHalted: this.porHalted,
+        dailyMintCapSats: this.config.maxDailyMintSats || null,
+        dailyMintUsedSats: this.dailyMintedSats(),
+        dailyReleaseCapSats: this.config.maxDailyReleaseSats || null,
+        dailyReleaseUsedSats: this.dailyReleasedSats(),
+      },
       blockHeight: height,
       uptimeSec: this.startedAt ? Math.floor((Date.now() - this.startedAt) / 1000) : 0,
       confPolicy: { required: this.config.finalityConf },
