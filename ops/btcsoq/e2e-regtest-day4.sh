@@ -119,7 +119,13 @@ SPTX=$(echo "$SPEND" | jq -r '.txid // ""')
 check "pinned spend broadcast" "$([ -n "$SPTX" ] && [ "$SPTX" != "null" ] && echo true || echo false)"
 VIN0=$(SOQRPC getrawtransaction "[\"$SPTX\", true]" | jq -r '.result.vin[0] | .txid + ":" + (.vout|tostring)')
 check "vin[0] IS the pinned carrier (no coin-selection lottery)" "$([ "$VIN0" = "$X1:0" ] && echo true || echo false)"
-if wait_status "$RRID" released 600; then check "pinned redemption → released" true; else check "pinned redemption → released" false; fi
+T=0; RST=""
+while [ $T -lt 600 ]; do
+  RST=$(curl -s "$API/api/btc/mints" | jq -r --arg k "$T1:$V1" '.mints[] | select(.key==$k) | .status')
+  [ "$RST" = "redeemed" ] && break; sleep 15; T=$((T+15))
+done
+RELTX=$(curl -s "$API/api/btc/mints" | jq -r --arg k "$T1:$V1" '.mints[] | select(.key==$k) | .releaseTxid // ""')
+check "pinned redemption → record redeemed + BTC released (FIFO intent binding: oldest open intent for the address absorbs it)" "$([ "$RST" = "redeemed" ] && [ -n "$RELTX" ] && echo true || echo false)"
 fi
 
 echo "── 6. Pinned-utxo input validation ────────────────────"
