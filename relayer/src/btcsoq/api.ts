@@ -150,6 +150,17 @@ export function mountBtcsoqRoutes(app: express.Application, gateway: BtcsoqGatew
     res.json({ ok: true, mints: gateway.listRecentMints(limit) });
   });
 
+  // ── GET /api/btc/attestations ────────────────────────
+  // Dilithium-signed event feed — independently verifiable (ML-DSA-44)
+  app.get('/api/btc/attestations', async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+      res.json({ ok: true, ...(await gateway.attestationFeed(limit)) });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // ── POST /api/btc/block-notify (bitcoind push channel) ─
   app.post('/api/btc/block-notify', async (req, res) => {
     if (!isLocalhost(req)) {

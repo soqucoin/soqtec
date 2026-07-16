@@ -92,6 +92,7 @@ export interface BtcsoqSettings {
   soqRpcUrl: string;
   soqRpcUser: string;
   soqRpcPass: string;
+  attestationAddress: string;
 }
 
 export function loadConfig(): RelayerConfig {
@@ -192,5 +193,7 @@ function loadBtcsoqSettings(): BtcsoqSettings {
     soqRpcUrl: process.env.BTCSOQ_SOQ_RPC || process.env.COLD_NODE_RPC || 'http://127.0.0.1:38332',
     soqRpcUser: process.env.BTCSOQ_SOQ_RPC_USER || process.env.COLD_NODE_RPC_USER || process.env.SOQUCOIN_RPC_USER || '',
     soqRpcPass: process.env.BTCSOQ_SOQ_RPC_PASS || process.env.COLD_NODE_RPC_PASS || process.env.SOQUCOIN_RPC_PASS || '',
+    // Dilithium-signed event feed; key lives in the gateway signer keystore
+    attestationAddress: process.env.BTCSOQ_ATTESTATION_ADDRESS || '',
   };
 }

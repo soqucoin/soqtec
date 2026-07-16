@@ -55,6 +55,20 @@ export class MintSignerClient {
     return res.addresses ?? [];
   }
 
+  /** ML-DSA-44 signature (empty context, FIPS 204) over a 32-byte digest. */
+  async signDigest(digestHex: string, address: string): Promise<string> {
+    const res = await this.post('/api/v1/sign-digest', { digest_hex: digestHex, address });
+    if (!res.signature_hex) throw new Error('signer returned no signature');
+    return res.signature_hex;
+  }
+
+  /** The 1312-byte ML-DSA-44 public key for a signer address. */
+  async pubkey(address: string): Promise<string> {
+    const res = await this.get(`/api/v1/pubkey?address=${encodeURIComponent(address)}`);
+    if (!res.pubkey_hex) throw new Error('signer returned no pubkey');
+    return res.pubkey_hex;
+  }
+
   async healthy(): Promise<boolean> {
     try {
       const ctrl = new AbortController();

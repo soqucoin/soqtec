@@ -23,6 +23,7 @@ import { MintSignerClient } from './signer-client';
 import { SoqScanner } from './soq-scan';
 import { BitcoinRpc } from './rpc';
 import { encodeTag } from './receipt';
+import { AttestedEventKind, AttestationRecord, buildPayload, sha256Hex } from './attestation';
 import { logger } from '../utils/logger';
 
 export interface BtcsoqConfig extends BitcoinCEAConfig {
@@ -50,6 +51,8 @@ export interface BtcsoqConfig extends BitcoinCEAConfig {
   soqRpcUrl: string;
   soqRpcUser: string;
   soqRpcPass: string;
+  /** Attestation signing key (in the gateway signer keystore); empty = feed off */
+  attestationAddress: string;
 }
 
 /** How often stuck 'minting'/'redeeming' records are re-driven. */
@@ -473,6 +476,10 @@ export class BtcsoqGateway {
       await this.store.putIntent(intent);
     }
     logger.info(`[BTCSOQ] MINTED ${rec.sats} sats receipt → ${rec.ssqAddress.slice(0, 20)}... (tx ${mintTxid.slice(0, 16)}..., carrier ${rec.carrierShors} shors)`);
+    await this.attest('receipt-minted', {
+      key: rec.key, intentId: rec.intentId, ssqAddress: rec.ssqAddress,
+      sats: rec.sats, txid: mintTxid,
+    });
     return mintTxid;
   }
 
@@ -486,6 +493,80 @@ export class BtcsoqGateway {
     if (dep.spvProof) intent.spvProof = dep.spvProof;
     await this.store.putIntent(intent);
     logger.info(`[BTCSOQ] Intent ${intent.id.slice(0, 8)} → ${status}`);
+
+    if (status === 'confirmed') {
+      await this.attest('deposit-confirmed', {
+        key: dep.key, intentId: intent.id, ssqAddress: intent.ssqAddress,
+        sats: dep.sats, txid: dep.txid,
+      });
+    }
+  }
+
+  // ── Attestations (Dilithium-signed event feed) ─────────
+
+  /**
+   * Record + sign an attestation for a money event. Idempotent per
+   * (kind, deposit key). Signing failures never block the money path:
+   * the record persists unsigned and the money tick retries it.
+   */
+  private async attest(kind: AttestedEventKind, f: {
+    key: string; intentId: string; ssqAddress: string; sats: number; txid: string;
+  }): Promise<void> {
+    if (!this.config.attestationAddress) return;
+    const id = `${kind}:${f.key}`;
+    if (this.store.getAttestation(id)) return;
+
+    const payload = buildPayload({
+      kind,
+      network: this.config.network,
+      key: f.key,
+      intentId: f.intentId,
+      ssqAddress: f.ssqAddress,
+      sats: f.sats,
+      txid: f.txid,
+      ts: Date.now(),
+    });
+    const rec: AttestationRecord = {
+      id,
+      kind,
+      payload,
+      digestHex: sha256Hex(payload),
+      signatureHex: null,
+      signerAddress: this.config.attestationAddress,
+      ts: Date.now(),
+    };
+    await this.store.putAttestation(rec);
+    await this.signAttestation(rec);
+  }
+
+  private async signAttestation(rec: AttestationRecord): Promise<void> {
+    try {
+      rec.signatureHex = await this.signer.signDigest(rec.digestHex, rec.signerAddress);
+      await this.store.putAttestation(rec);
+      logger.info(`[BTCSOQ] ATTESTED ${rec.kind} for ${rec.id.split(':').slice(1).join(':').slice(0, 20)}... (ML-DSA-44, ${rec.signatureHex.length / 2} bytes)`);
+    } catch (err: any) {
+      logger.warn(`[BTCSOQ] attestation signing failed for ${rec.id} (${err.message}) — will retry on money tick`);
+    }
+  }
+
+  /** Feed for the Terminal + verifiers; pubkey fetched lazily and cached. */
+  private attestationPubkey: string | null = null;
+
+  async attestationFeed(limit: number = 100): Promise<any> {
+    if (!this.config.attestationAddress) return { enabled: false, attestations: [] };
+    if (!this.attestationPubkey) {
+      try {
+        this.attestationPubkey = await this.signer.pubkey(this.config.attestationAddress);
+      } catch { /* feed still serves; pubkey retried next call */ }
+    }
+    return {
+      enabled: true,
+      algorithm: 'ML-DSA-44 (FIPS 204), empty context',
+      signerAddress: this.config.attestationAddress,
+      pubkeyHex: this.attestationPubkey,
+      verify: 'digest = sha256(payload); @noble/post-quantum ml_dsa44.verify(signature, digest, pubkey) === true. The payload string is signed verbatim (empty ML-DSA context).',
+      attestations: this.store.listAttestations().slice(0, limit),
+    };
   }
 
   // ── Money loop (mint retry / recovery / redemption / release) ──
@@ -517,6 +598,12 @@ export class BtcsoqGateway {
       for (const rec of this.store.listMints()) {
         if (rec.status === 'redeeming') {
           await this.attemptRelease(rec);
+        }
+      }
+      // Attestations that failed to sign (signer down) get retried here
+      for (const att of this.store.listAttestations()) {
+        if (att.signatureHex === null) {
+          await this.signAttestation(att);
         }
       }
     } finally {
@@ -606,6 +693,10 @@ export class BtcsoqGateway {
     redeemIntent.updatedAt = Date.now();
     await this.store.putIntent(redeemIntent);
     logger.info(`[BTCSOQ] REDEEM: receipt ${rec.mintTxid?.slice(0, 16)}... returned → releasing ${rec.sats} sats to ${redeemIntent.btcPayoutAddress}`);
+    await this.attest('receipt-returned', {
+      key: rec.key, intentId: redeemIntent.id, ssqAddress: rec.ssqAddress,
+      sats: rec.sats, txid: receiptSpendTxid,
+    });
 
     await this.attemptRelease(rec);
   }
@@ -662,6 +753,10 @@ export class BtcsoqGateway {
     intent.updatedAt = Date.now();
     await this.store.putIntent(intent);
     logger.info(`[BTCSOQ] RELEASED ${rec.sats} sats → ${intent.btcPayoutAddress} (tx ${releaseTxid.slice(0, 16)}...) — loop closed for deposit ${rec.key.slice(0, 20)}...`);
+    await this.attest('btc-released', {
+      key: rec.key, intentId: intent.id, ssqAddress: rec.ssqAddress,
+      sats: rec.sats, txid: releaseTxid,
+    });
   }
 
   private async expireStaleIntents(): Promise<void> {

@@ -10,6 +10,7 @@
 import { promises as fs } from 'fs';
 import { dirname, join } from 'path';
 import type { BurnConfidence } from '../cea/types';
+import type { AttestationRecord } from './attestation';
 
 export type DepositIntentStatus =
   | 'awaiting-deposit'   // intent created, fresh P2TR issued
@@ -114,14 +115,15 @@ interface GatewayState {
   intents: Record<string, BtcIntent>;
   deposits: Record<string, DepositRecord>;
   mints: Record<string, MintRecord>;
+  attestations: Record<string, AttestationRecord>;
   meta: { pollCursor?: string; soqScanHeight?: number };
 }
 
-const EMPTY_STATE: GatewayState = { intents: {}, deposits: {}, mints: {}, meta: {} };
+const EMPTY_STATE: GatewayState = { intents: {}, deposits: {}, mints: {}, attestations: {}, meta: {} };
 
 export class GatewayStore {
   private file: string;
-  private state: GatewayState = { ...EMPTY_STATE, intents: {}, deposits: {}, mints: {}, meta: {} };
+  private state: GatewayState = { ...EMPTY_STATE, intents: {}, deposits: {}, mints: {}, attestations: {}, meta: {} };
   private saveChain: Promise<void> = Promise.resolve();
 
   constructor(dataDir: string) {
@@ -137,6 +139,7 @@ export class GatewayStore {
         intents: parsed.intents || {},
         deposits: parsed.deposits || {},
         mints: parsed.mints || {},
+        attestations: parsed.attestations || {},
         meta: parsed.meta || {},
       };
     } catch (err: any) {
@@ -225,6 +228,21 @@ export class GatewayStore {
     const [txid, voutStr] = outpoint.split(':');
     if (voutStr !== '0') return undefined;   // carrier is always vout[0] by construction
     return Object.values(this.state.mints).find((m) => m.mintTxid === txid);
+  }
+
+  // ── Attestations ───────────────────────────────────────
+
+  async putAttestation(rec: AttestationRecord): Promise<void> {
+    this.state.attestations[rec.id] = rec;
+    await this.persist();
+  }
+
+  getAttestation(id: string): AttestationRecord | undefined {
+    return this.state.attestations[id];
+  }
+
+  listAttestations(): AttestationRecord[] {
+    return Object.values(this.state.attestations).sort((a, b) => b.ts - a.ts);
   }
 
   // ── Meta ───────────────────────────────────────────────
