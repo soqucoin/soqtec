@@ -91,7 +91,7 @@ rpcport=48332
 ${T4_AUTH}
 zmqpubhashblock=tcp://127.0.0.1:28334
 zmqpubrawtx=tcp://127.0.0.1:28335
-blocknotify=curl -s -m 5 -X POST http://127.0.0.1:3002/api/btc/block-notify -H 'Content-Type: application/json' -d '{"network":"testnet4","hash":"%s"}' || true
+blocknotify=curl -s -m 5 -X POST http://127.0.0.1:3005/api/btc/block-notify -H 'Content-Type: application/json' -d '{"network":"testnet4","hash":"%s"}' || true
 EOF
 
 cat > "${RT_DATADIR}/bitcoin.conf" <<EOF
@@ -106,7 +106,7 @@ ${RT_AUTH}
 zmqpubhashblock=tcp://127.0.0.1:28444
 zmqpubrawtx=tcp://127.0.0.1:28445
 fallbackfee=0.0001
-blocknotify=curl -s -m 5 -X POST http://127.0.0.1:3002/api/btc/block-notify -H 'Content-Type: application/json' -d '{"network":"regtest","hash":"%s"}' || true
+blocknotify=curl -s -m 5 -X POST http://127.0.0.1:3005/api/btc/block-notify -H 'Content-Type: application/json' -d '{"network":"regtest","hash":"%s"}' || true
 EOF
 
 chown -R bitcoin:bitcoin "$T4_DATADIR" "$RT_DATADIR"
