@@ -141,11 +141,13 @@ async function main(): Promise<void> {
   }
 
   // ─── BTCSOQ Gateway (quantum-shielded Bitcoin lane) ───
-  // Detection-only on Day 1: BitcoinCEA events flow to the BtcsoqGateway
-  // orchestrator, NOT the DUA router — the router's release path is
-  // SOQ-sendtoaddress-specific and must never fire on a raw BTC deposit.
-  // Router integration lands with the receipt-mint path (Day 2, DL §6).
+  // Day 2: BitcoinCEA registers with its OWN DUA router instance behind a
+  // chain-aware release strategy — BTC deposit events route to the receipt
+  // MINT, never the router's SOQ-sendtoaddress path (the Day-1 hazard).
+  // The adapter is unmanaged: the gateway owns its lifecycle and forwards
+  // events via router.ingest().
   let btcsoqGateway: BtcsoqGateway | null = null;
+  let btcRouter: DUAEventRouter | null = null;
 
   if (config.btcsoq.enabled) {
     logger.info('');
@@ -155,8 +157,29 @@ async function main(): Promise<void> {
     logger.info(`│ Vault wallet: ${config.btcsoq.depositWallet} (watch-only)`);
     logger.info(`│ Finality:     ${config.btcsoq.finalityConf} conf (disclosed)`);
     btcsoqGateway = new BtcsoqGateway({ ...config.btcsoq });
+
+    const gateway = btcsoqGateway;
+    btcRouter = new DUAEventRouter({
+      releasePolicy: 'confirmed',
+      paulEndpoint: '',              // never used: bitcoin has a strategy
+      soqucoinRpcUrl: '',            // never used: bitcoin has a strategy
+      soqucoinRpcUser: '',
+      soqucoinRpcPass: '',
+      pollIntervalMs: config.btcsoq.pollIntervalMs,
+      maxSpeculativeQueue: 100,
+    });
+    btcRouter.registerAdapter(gateway.getCea(), {
+      managed: false,                // gateway owns the CEA lifecycle
+      strategy: {
+        method: 'btcsoq-mint',
+        release: (evt) => gateway.mintForDepositEvent(evt),
+      },
+    });
+    gateway.setRouterSink((evt) => btcRouter!.ingest(evt));
+
     await btcsoqGateway.start();
     logger.info('│ BTCSOQ lane active (overlay receipt)');
+    logger.info('│ Flow: Deposit → CEA → DUA Router → mint strategy → receipt');
     logger.info('└──────────────────────────────────────────┘');
   } else {
     logger.info('BTCSOQ gateway: disabled (set BTCSOQ_ENABLED=true to activate)');

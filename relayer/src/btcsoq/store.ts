@@ -47,9 +47,48 @@ export interface BtcIntent {
   sats?: number;
   confirmations?: number;
   spvProof?: string;
-  // Day 2
+  // Money loop (Day 2)
   mintTxid?: string;
+  receiptSpendTxid?: string;
   releaseTxid?: string;
+  failReason?: string;
+}
+
+/**
+ * Receipt mint ledger entry, keyed by the DEPOSIT outpoint (`txid:vout`).
+ * The claim write (status='minting') happens BEFORE the signer call — the
+ * CAS half of crash-safe minting. A record stuck in 'minting' is only ever
+ * resolved by a chain scan (found → finalize; not found → retry), never by
+ * blind re-mint (the pool double-credit class, deliberately not replicated).
+ */
+export type MintStatus =
+  | 'minting'      // claimed; signer call in flight or awaiting recovery/retry
+  | 'minted'       // receipt tx on chain (carrier = mintTxid:0)
+  | 'redeeming'    // receipt returned; BTC release claimed, in flight
+  | 'redeemed';    // BTC released
+
+export interface MintRecord {
+  /** Deposit `txid:vout` — the replay/idempotency key */
+  key: string;
+  intentId: string;
+  ssqAddress: string;
+  /** BTC sats this receipt is backed by (== released on redemption) */
+  sats: number;
+  carrierShors: number;
+  /** Full BSQ1 tag hex — recovery scans match on this */
+  opReturnHex: string;
+  status: MintStatus;
+  /** Stagenet tip height when the claim was written — bounds recovery scans */
+  claimHeight: number;
+  attempts: number;
+  lastError?: string;
+  mintTxid?: string;
+  /** Redemption linkage */
+  redeemIntentId?: string;
+  receiptSpendTxid?: string;
+  releaseTxid?: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface DepositRecord {
@@ -74,14 +113,15 @@ export interface DepositRecord {
 interface GatewayState {
   intents: Record<string, BtcIntent>;
   deposits: Record<string, DepositRecord>;
-  meta: { pollCursor?: string };
+  mints: Record<string, MintRecord>;
+  meta: { pollCursor?: string; soqScanHeight?: number };
 }
 
-const EMPTY_STATE: GatewayState = { intents: {}, deposits: {}, meta: {} };
+const EMPTY_STATE: GatewayState = { intents: {}, deposits: {}, mints: {}, meta: {} };
 
 export class GatewayStore {
   private file: string;
-  private state: GatewayState = { ...EMPTY_STATE, intents: {}, deposits: {}, meta: {} };
+  private state: GatewayState = { ...EMPTY_STATE, intents: {}, deposits: {}, mints: {}, meta: {} };
   private saveChain: Promise<void> = Promise.resolve();
 
   constructor(dataDir: string) {
@@ -96,6 +136,7 @@ export class GatewayStore {
       this.state = {
         intents: parsed.intents || {},
         deposits: parsed.deposits || {},
+        mints: parsed.mints || {},
         meta: parsed.meta || {},
       };
     } catch (err: any) {
@@ -150,6 +191,42 @@ export class GatewayStore {
     return Object.values(this.state.deposits).sort((a, b) => b.firstSeenAt - a.firstSeenAt);
   }
 
+  // ── Mint ledger ────────────────────────────────────────
+
+  /**
+   * Claim a deposit outpoint for minting. Returns false if ANY record
+   * already exists for the key (whatever its status) — the caller must
+   * never proceed to the signer after a false. This is the CAS that runs
+   * BEFORE the signer call (DL §5 replay design).
+   */
+  async claimMint(rec: MintRecord): Promise<boolean> {
+    if (this.state.mints[rec.key]) return false;
+    this.state.mints[rec.key] = rec;
+    await this.persist();
+    return true;
+  }
+
+  async putMint(rec: MintRecord): Promise<void> {
+    rec.updatedAt = Date.now();
+    this.state.mints[rec.key] = rec;
+    await this.persist();
+  }
+
+  getMint(key: string): MintRecord | undefined {
+    return this.state.mints[key];
+  }
+
+  listMints(): MintRecord[] {
+    return Object.values(this.state.mints).sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /** Look up a mint by its carrier outpoint (`mintTxid:0`). */
+  findMintByCarrier(outpoint: string): MintRecord | undefined {
+    const [txid, voutStr] = outpoint.split(':');
+    if (voutStr !== '0') return undefined;   // carrier is always vout[0] by construction
+    return Object.values(this.state.mints).find((m) => m.mintTxid === txid);
+  }
+
   // ── Meta ───────────────────────────────────────────────
 
   getPollCursor(): string | undefined {
@@ -158,6 +235,16 @@ export class GatewayStore {
 
   async setPollCursor(cursor: string): Promise<void> {
     this.state.meta.pollCursor = cursor;
+    await this.persist();
+  }
+
+  /** Stagenet redemption-scan cursor (block height). */
+  getSoqScanHeight(): number | undefined {
+    return this.state.meta.soqScanHeight;
+  }
+
+  async setSoqScanHeight(height: number): Promise<void> {
+    this.state.meta.soqScanHeight = height;
     await this.persist();
   }
 }

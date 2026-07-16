@@ -143,6 +143,13 @@ export function mountBtcsoqRoutes(app: express.Application, gateway: BtcsoqGatew
     res.json({ ok: true, deposits });
   });
 
+  // ── GET /api/btc/mints ───────────────────────────────
+  // Receipt ledger view (mint/redeem stream for the Terminal + E2E asserts)
+  app.get('/api/btc/mints', (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    res.json({ ok: true, mints: gateway.listRecentMints(limit) });
+  });
+
   // ── POST /api/btc/block-notify (bitcoind push channel) ─
   app.post('/api/btc/block-notify', async (req, res) => {
     if (!isLocalhost(req)) {

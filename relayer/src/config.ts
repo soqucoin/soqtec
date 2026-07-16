@@ -81,6 +81,17 @@ export interface BtcsoqSettings {
   dataDir: string;
   intentTtlHours: number;
   explorerBase: string;
+  // Money loop (Day 2) — dedicated gateway signer instance + stagenet read RPC
+  mintSignerUrl: string;
+  mintSignerToken: string;
+  mintFromAddress: string;
+  redemptionAddress: string;
+  carrierShors: number;
+  mintFeeRate: number;
+  minDepositSats: number;
+  soqRpcUrl: string;
+  soqRpcUser: string;
+  soqRpcPass: string;
 }
 
 export function loadConfig(): RelayerConfig {
@@ -165,5 +176,21 @@ function loadBtcsoqSettings(): BtcsoqSettings {
     dataDir: process.env.BTCSOQ_DATA_DIR || './btcsoq-data',
     intentTtlHours: parseInt(process.env.BTCSOQ_INTENT_TTL_HOURS || '24'),
     explorerBase: process.env.BTC_EXPLORER_BASE || defaultExplorer[network] || '',
+    // Money loop: the gateway's OWN signer instance (soq-privacy-signer
+    // pattern) — never the production signer at 8550.
+    mintSignerUrl: process.env.BTCSOQ_MINT_SIGNER_URL || '',
+    mintSignerToken: process.env.BTCSOQ_MINT_SIGNER_TOKEN || '',
+    mintFromAddress: process.env.BTCSOQ_MINT_FROM_ADDRESS || '',
+    redemptionAddress: process.env.BTCSOQ_REDEMPTION_ADDRESS || '',
+    // Carrier must cover its own redemption-spend fee: ML-DSA txs are ~4-8kB
+    // and the stagenet fee-rate floor is 1000 shors/vB.
+    carrierShors: parseInt(process.env.BTCSOQ_CARRIER_SHORS || '20000000'),
+    mintFeeRate: parseInt(process.env.BTCSOQ_MINT_FEE_RATE || '1000'),
+    minDepositSats: parseInt(process.env.BTCSOQ_MIN_DEPOSIT_SATS || '10000'),
+    // Stagenet read path (recovery + redemption scanning) — reuses the
+    // relayer's cold-node creds unless overridden.
+    soqRpcUrl: process.env.BTCSOQ_SOQ_RPC || process.env.COLD_NODE_RPC || 'http://127.0.0.1:38332',
+    soqRpcUser: process.env.BTCSOQ_SOQ_RPC_USER || process.env.COLD_NODE_RPC_USER || process.env.SOQUCOIN_RPC_USER || '',
+    soqRpcPass: process.env.BTCSOQ_SOQ_RPC_PASS || process.env.COLD_NODE_RPC_PASS || process.env.SOQUCOIN_RPC_PASS || '',
   };
 }
