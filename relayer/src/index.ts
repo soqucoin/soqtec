@@ -22,6 +22,8 @@ import { logger } from './utils/logger';
 import { loadConfig } from './config';
 import { DUAEventRouter, SolanaCEA } from './cea';
 import { SolanaBridgeExecutor } from './bridge/solana-executor';
+import { BtcsoqGateway } from './btcsoq/gateway';
+import { mountBtcsoqRoutes } from './btcsoq/api';
 import idl from './idl/soqtec_bridge.json';
 
 async function main(): Promise<void> {
@@ -38,6 +40,14 @@ async function main(): Promise<void> {
   logger.info(`Soqucoin RPC: ${config.soqucoinRpc}`);
   logger.info(`Threshold: ${config.threshold}/${config.validatorCount}`);
 
+  // BTCSOQ_ONLY: run just the BTCSOQ gateway + API — used for the Day-1/2
+  // dev instance on the Services VPS so the LIVE Solana-lane relayer service
+  // is never restarted with in-progress branch code.
+  const btcsoqOnly = process.env.BTCSOQ_ONLY === 'true';
+  if (btcsoqOnly) {
+    logger.info('BTCSOQ_ONLY=true — Solana/Soqucoin watchers, bridge executor and DUA are DISABLED');
+  }
+
   // Initialize transfer queue (legacy — used by watchers)
   const queue = new TransferQueue(config);
 
@@ -45,16 +55,20 @@ async function main(): Promise<void> {
   const solanaWatcher = new SolanaWatcher(config, queue);
   const soqucoinWatcher = new SoqucoinWatcher(config, queue);
 
-  await solanaWatcher.start();
-  logger.info('Solana watcher started (legacy poll)');
+  if (!btcsoqOnly) {
+    await solanaWatcher.start();
+    logger.info('Solana watcher started (legacy poll)');
 
-  await soqucoinWatcher.start();
-  logger.info('Soqucoin watcher started');
+    await soqucoinWatcher.start();
+    logger.info('Soqucoin watcher started');
+  }
 
   // ─── Bridge Executor (SOQ→SOL + PoR) ──────────────────
   let bridgeExecutor: SolanaBridgeExecutor | null = null;
 
-  try {
+  if (btcsoqOnly) {
+    // skipped in BTCSOQ_ONLY mode
+  } else try {
     bridgeExecutor = new SolanaBridgeExecutor(config);
     await bridgeExecutor.initialize();
 
@@ -78,7 +92,7 @@ async function main(): Promise<void> {
   // ─── DUA/CEA Pipeline ─────────────────────────────────
   let duaRouter: DUAEventRouter | null = null;
 
-  if (config.duaEnabled) {
+  if (config.duaEnabled && !btcsoqOnly) {
     logger.info('');
     logger.info('┌─ DUA/CEA Pipeline ──────────────────────┐');
 
@@ -126,15 +140,43 @@ async function main(): Promise<void> {
     logger.info('Using legacy watcher + queue pipeline');
   }
 
+  // ─── BTCSOQ Gateway (quantum-shielded Bitcoin lane) ───
+  // Detection-only on Day 1: BitcoinCEA events flow to the BtcsoqGateway
+  // orchestrator, NOT the DUA router — the router's release path is
+  // SOQ-sendtoaddress-specific and must never fire on a raw BTC deposit.
+  // Router integration lands with the receipt-mint path (Day 2, DL §6).
+  let btcsoqGateway: BtcsoqGateway | null = null;
+
+  if (config.btcsoq.enabled) {
+    logger.info('');
+    logger.info('┌─ BTCSOQ Gateway ────────────────────────┐');
+    logger.info(`│ Network:      ${config.btcsoq.network}`);
+    logger.info(`│ Bitcoin RPC:  ${config.btcsoq.rpcUrl}`);
+    logger.info(`│ Vault wallet: ${config.btcsoq.depositWallet} (watch-only)`);
+    logger.info(`│ Finality:     ${config.btcsoq.finalityConf} conf (disclosed)`);
+    btcsoqGateway = new BtcsoqGateway({ ...config.btcsoq });
+    await btcsoqGateway.start();
+    logger.info('│ BTCSOQ lane active (overlay receipt)');
+    logger.info('└──────────────────────────────────────────┘');
+  } else {
+    logger.info('BTCSOQ gateway: disabled (set BTCSOQ_ENABLED=true to activate)');
+  }
+
   // Start API server for terminal dashboard
   const api = await startApiServer(config, queue, solanaWatcher, soqucoinWatcher);
+  if (btcsoqGateway) {
+    mountBtcsoqRoutes(api, btcsoqGateway);
+  }
   logger.info(`API server listening on port ${config.apiPort}`);
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     logger.info(`\n${signal} received — shutting down gracefully...`);
-    await solanaWatcher.stop();
-    await soqucoinWatcher.stop();
+    if (!btcsoqOnly) {
+      await solanaWatcher.stop();
+      await soqucoinWatcher.stop();
+    }
+    if (btcsoqGateway) await btcsoqGateway.stop();
     if (duaRouter) await duaRouter.stopAll();
     if (bridgeExecutor) bridgeExecutor.stopPeriodicPoR();
     (api as any).close();

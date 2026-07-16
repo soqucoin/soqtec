@@ -63,6 +63,24 @@ export interface RelayerConfig {
   releasePolicy: 'mempool' | 'confirmed' | 'finalized';
   webhookCallbackUrl: string;
   duaEnabled: boolean;
+
+  // BTCSOQ gateway (DL-BTC-SOQTEC-GATEWAY-2026-07-16)
+  btcsoq: BtcsoqSettings;
+}
+
+export interface BtcsoqSettings {
+  enabled: boolean;
+  network: 'testnet4' | 'regtest' | 'signet' | 'mainnet';
+  rpcUrl: string;
+  rpcUser: string;
+  rpcPass: string;
+  depositWallet: string;
+  releaseWallet: string;
+  finalityConf: number;
+  pollIntervalMs: number;
+  dataDir: string;
+  intentTtlHours: number;
+  explorerBase: string;
 }
 
 export function loadConfig(): RelayerConfig {
@@ -116,5 +134,36 @@ export function loadConfig(): RelayerConfig {
     releasePolicy: (process.env.RELEASE_POLICY as any) || 'confirmed',
     webhookCallbackUrl: process.env.WEBHOOK_CALLBACK_URL || '',
     duaEnabled: process.env.DUA_ENABLED === 'true',
+
+    btcsoq: loadBtcsoqSettings(),
+  };
+}
+
+function loadBtcsoqSettings(): BtcsoqSettings {
+  const network = (process.env.BTC_NETWORK as any) || 'regtest';
+  const defaultRpcPort: Record<string, number> = {
+    testnet4: 48332, regtest: 18443, signet: 38332, mainnet: 8332,
+  };
+  const defaultExplorer: Record<string, string> = {
+    testnet4: 'https://mempool.space/testnet4',
+    signet: 'https://mempool.space/signet',
+    mainnet: 'https://mempool.space',
+    regtest: '',
+  };
+  return {
+    enabled: process.env.BTCSOQ_ENABLED === 'true',
+    network,
+    rpcUrl: process.env.BTC_RPC_URL || `http://127.0.0.1:${defaultRpcPort[network] || 18443}`,
+    rpcUser: process.env.BTC_RPC_USER || '',
+    rpcPass: process.env.BTC_RPC_PASS || '',
+    depositWallet: process.env.BTC_DEPOSIT_WALLET || 'btcsoq-deposits',
+    releaseWallet: process.env.BTC_RELEASE_WALLET || 'btcsoq-release',
+    // Demo confirmation policy: 1 conf on testnet4/regtest, disclosed on-screen;
+    // mainnet posture = 6 (DL §4.5)
+    finalityConf: parseInt(process.env.BTC_FINALITY_CONF || (network === 'mainnet' ? '6' : '1')),
+    pollIntervalMs: parseInt(process.env.BTC_POLL_MS || '10000'),
+    dataDir: process.env.BTCSOQ_DATA_DIR || './btcsoq-data',
+    intentTtlHours: parseInt(process.env.BTCSOQ_INTENT_TTL_HOURS || '24'),
+    explorerBase: process.env.BTC_EXPLORER_BASE || defaultExplorer[network] || '',
   };
 }
