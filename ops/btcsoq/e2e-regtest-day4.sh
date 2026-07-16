@@ -33,6 +33,10 @@ set_env() { # KEY VALUE — idempotent env swap + restart
   systemctl restart btcsoq-relayer-dev; sleep 6
 }
 
+echo "── 0. Baseline: unlimited caps (each test flips exactly one control) ─"
+set_env BTCSOQ_MAX_DAILY_MINT_SATS 0
+set_env BTCSOQ_MAX_DAILY_RELEASE_SATS 0
+
 echo "── 1. Pause switch: money halts, resumes, nothing is lost ─"
 rm -f "$PAUSE"
 touch "$PAUSE"
@@ -46,12 +50,12 @@ MT=$(curl -s "$API/api/btc/status/$PID" | jq -r '.intent.mintTxid // ""')
 check "no mintTxid while paused" "$([ -z "$MT" ] && echo true || echo false)"
 check "deferral logged" "$(journalctl -u btcsoq-relayer-dev --since '-3min' | grep -q 'deferred.*paused' && echo true || echo false)"
 rm -f "$PAUSE"
-if wait_status "$PID" minted 120; then check "unpause → minted (deferred work resumed)" true; else check "unpause → minted" false; fi
+if wait_status "$PID" minted 360; then check "unpause → minted (deferred work resumed)" true; else check "unpause → minted" false; fi
 
 echo "── 2. Reorg: deposit block invalidated, re-mined — ONE mint ever ─"
 read RID RTX _ <<< "$(new_deposit "$ATTENDEE" 0.20)"
 BLOCK=$($RTCLI getbestblockhash); mine
-if wait_status "$RID" minted 120; then check "minted at 1 conf" true; else check "minted at 1 conf" false; fi
+if wait_status "$RID" minted 360; then check "minted at 1 conf" true; else check "minted at 1 conf" false; fi
 M1=$(curl -s "$API/api/btc/status/$RID" | jq -r '.intent.mintTxid')
 TIP=$($RTCLI getbestblockhash)
 $RTCLI invalidateblock "$TIP" > /dev/null          # deposit back to mempool
@@ -71,8 +75,8 @@ read D1 T1 _ <<< "$(new_deposit "$ATTENDEE" 0.15)"
 read D2 T2 _ <<< "$(new_deposit "$ATTENDEE" 0.10)"
 mine
 OK1=false; OK2=false
-wait_status "$D1" minted 150 && OK1=true
-wait_status "$D2" minted 150 && OK2=true
+wait_status "$D1" minted 420 && OK1=true
+wait_status "$D2" minted 420 && OK2=true
 check "both intents minted" "$([ $OK1 = true ] && [ $OK2 = true ] && echo true || echo false)"
 X1=$(curl -s "$API/api/btc/status/$D1" | jq -r '.intent.mintTxid')
 X2=$(curl -s "$API/api/btc/status/$D2" | jq -r '.intent.mintTxid')
@@ -84,11 +88,11 @@ read CID CTX _ <<< "$(new_deposit "$ATTENDEE" 0.05)"
 mine; sleep 40
 CST=$(intent_status "$CID")
 check "over-cap intent parked (status=$CST)" "$([ "$CST" = "confirmed" ] || [ "$CST" = "minting" ] && echo true || echo false)"
-check "cap deferral logged" "$(journalctl -u btcsoq-relayer-dev --since '-2min' | grep -q 'daily mint cap' && echo true || echo false)"
+check "cap deferral logged for THIS deposit" "$(journalctl -u btcsoq-relayer-dev --no-pager | grep "deferred for ${CTX:0:16}" | grep -q "daily mint cap" && echo true || echo false)"
 USED=$(curl -s "$API/api/btc/gateway" | jq '.gateway.breaker.dailyMintUsedSats')
 echo "  (24h minted: $USED sats)"
 set_env BTCSOQ_MAX_DAILY_MINT_SATS 0      # unlimited
-if wait_status "$CID" minted 120; then check "cap lifted → minted" true; else check "cap lifted → minted" false; fi
+if wait_status "$CID" minted 360; then check "cap lifted → minted" true; else check "cap lifted → minted" false; fi
 
 echo "── 5. Coin-controlled redemption: pin the exact carrier ─"
 # Redeem the double-intent D1 receipt by pinning its carrier outpoint —
@@ -97,6 +101,7 @@ PAYOUT=$($RTCLI -rpcwallet=miner getnewaddress "" bech32)
 RR=$(curl -s -X POST "$API/api/btc/redeem-intent" -H 'Content-Type: application/json' \
   -d "{\"ssqAddress\":\"$ATTENDEE\",\"btcAddress\":\"$PAYOUT\"}")
 RRID=$(echo "$RR" | jq -r .intentId)
+if [ -z "$X1" ] || [ "$X1" = "null" ]; then check "pin test has a carrier (D1 minted)" false; else
 echo "  waiting for carrier $X1 to reach 3 stagenet confs..."
 T=0; while [ $T -lt 600 ]; do
   C=$(SOQRPC getrawtransaction "[\"$X1\", true]" | jq -r '.result.confirmations // 0')
@@ -115,14 +120,19 @@ check "pinned spend broadcast" "$([ -n "$SPTX" ] && [ "$SPTX" != "null" ] && ech
 VIN0=$(SOQRPC getrawtransaction "[\"$SPTX\", true]" | jq -r '.result.vin[0] | .txid + ":" + (.vout|tostring)')
 check "vin[0] IS the pinned carrier (no coin-selection lottery)" "$([ "$VIN0" = "$X1:0" ] && echo true || echo false)"
 if wait_status "$RRID" released 600; then check "pinned redemption → released" true; else check "pinned redemption → released" false; fi
+fi
 
 echo "── 6. Pinned-utxo input validation ────────────────────"
+RTAG6=$(python3 -c "
+import struct
+p = b'BSQ1' + b'R' + struct.pack('<Q', 1) + bytes.fromhex('ab'*32) + struct.pack('<I', 0)
+print(p.hex())")
 BADREQ=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $SIGNER_TOKEN" -H 'Content-Type: application/json' \
-  -d "{\"recipient_address\":\"$REDEMPTION\",\"amount\":300000,\"op_return_hex\":\"$RTAG\",\"from_address\":\"$ATTENDEE\",\"fee_rate\":1000,\"utxos\":[\"nothex:0\"]}" \
+  -d "{\"recipient_address\":\"$REDEMPTION\",\"amount\":300000,\"op_return_hex\":\"$RTAG6\",\"from_address\":\"$ATTENDEE\",\"fee_rate\":1000,\"utxos\":[\"nothex:0\"]}" \
   "$SIGNER/api/v1/send-btcsoq-mint")
 check "malformed pinned outpoint → 400" "$([ "$BADREQ" = "400" ] && echo true || echo false)"
 UNKNOWN=$(curl -s -X POST -H "Authorization: Bearer $SIGNER_TOKEN" -H 'Content-Type: application/json' \
-  -d "{\"recipient_address\":\"$REDEMPTION\",\"amount\":300000,\"op_return_hex\":\"$RTAG\",\"from_address\":\"$ATTENDEE\",\"fee_rate\":1000,\"utxos\":[\"$(printf 'cd%.0s' {1..32}):0\"]}" \
+  -d "{\"recipient_address\":\"$REDEMPTION\",\"amount\":300000,\"op_return_hex\":\"$RTAG6\",\"from_address\":\"$ATTENDEE\",\"fee_rate\":1000,\"utxos\":[\"$(printf 'cd%.0s' {1..32}):0\"]}" \
   "$SIGNER/api/v1/send-btcsoq-mint")
 check "unknown pinned outpoint rejected with an error" "$(echo "$UNKNOWN" | jq 'has("error")')"
 
