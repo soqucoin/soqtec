@@ -34,6 +34,10 @@ export interface TheaterDeps {
   claudeUrl: string;
   /** Race payee channel identity (a gateway signer key) */
   payee: () => Promise<{ address: string; pubkeyHex: string }>;
+  /** Live Bitcoin context: vault truth + the measured confirmation wait */
+  btcContext: () => Promise<Record<string, unknown>>;
+  /** Recent gateway attestation events — Bitcoin's own lines on the tape */
+  recentAttestations: (limit: number) => Array<{ id: string; kind: string; ts: number; payload: string }>;
 }
 
 /** Curated public questions (free-form is allowed but length-capped). */
@@ -223,7 +227,7 @@ async function runHeartbeat(deps: TheaterDeps) {
     session.acts += 1;
     if (isRace) {
       broadcast({ kind: 'demo', stage: 'start', program: 'race', laps: 5 });
-      tapePush('scheduled demonstration · throughput, 5 payments', 'status');
+      tapePush('scheduled demonstration · throughput, 5 payments', 'note');
       const payerChannel = await ln.ensureChannel();
       const p = await deps.payee();
       const payeeChannel = await ln.ensurePayeeChannel(p.address, p.pubkeyHex, 100_000_000);
@@ -245,7 +249,7 @@ async function runHeartbeat(deps: TheaterDeps) {
       const presetId = HEARTBEAT_ASKS[heartbeatN % HEARTBEAT_ASKS.length];
       const question = ASK_PRESETS[presetId];
       broadcast({ kind: 'demo', stage: 'start', program: 'ask', question });
-      tapePush('scheduled demonstration · a machine gets paid to think', 'status');
+      tapePush('scheduled demonstration · a machine gets paid to think', 'note');
       const r = await ln.performPaidAsk(question, deps.grokUrl, (e) => {
         broadcast({ kind: 'demo', program: 'ask', ...e });
         tapeAsk('scheduled', e);
@@ -261,6 +265,38 @@ async function runHeartbeat(deps: TheaterDeps) {
     nextDemoAt = Date.now() + HEARTBEAT_EVERY_MS;
     broadcast({ kind: 'clock', nextDemoAt });
   }
+}
+
+// ── Bitcoin events join the tape (orange lines) ───────────
+const tapedAttestations = new Set<string>();
+function attLine(kind: string, payload: string): string | null {
+  let p: any = {};
+  try { p = JSON.parse(payload); } catch { /* keep empty */ }
+  const sats = p.sats ? `${Number(p.sats).toLocaleString('en-US')} sats` : '';
+  switch (kind) {
+    case 'deposit-confirmed': return `bitcoin crossed the boundary · ${sats} confirmed in the vault`;
+    case 'receipt-minted': return `receipt minted under ML-DSA-44 · ${sats} now quantum-safe`;
+    case 'receipt-returned': return `receipt returned · ${sats} heading home`;
+    case 'btc-released': return `bitcoin released · ${sats} back on the BTC chain`;
+    case 'converted-usdsoq': return `crossed value converted to USDSOQ stablecoin`;
+    case 'lightning-paid': return `crossed value paid an AI over post-quantum Lightning`;
+    default: return null;
+  }
+}
+function pollGatewayEvents(deps: TheaterDeps, seedOnly: boolean) {
+  try {
+    const recent = deps.recentAttestations(seedOnly ? 6 : 12);
+    // Oldest first so the tape reads chronologically.
+    for (const a of [...recent].reverse()) {
+      if (tapedAttestations.has(a.id)) continue;
+      tapedAttestations.add(a.id);
+      const line = attLine(a.kind, a.payload);
+      if (!line) continue;
+      if (seedOnly) tape.unshift({ ts: a.ts, line, cls: 'btc' });   // history, no broadcast
+      else tapePush(line, 'btc');
+    }
+    if (seedOnly) tape.sort((x, y) => y.ts - x.ts);
+  } catch { /* next poll */ }
 }
 
 // ── agent health cache (for the cards) ────────────────────
@@ -290,6 +326,9 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
   setInterval(() => { checkAgent('Grok', deps.grokUrl); checkAgent('Claude', deps.claudeUrl); }, 60_000);
   checkAgent('Grok', deps.grokUrl);
   checkAgent('Claude', deps.claudeUrl);
+  // Bitcoin's own events on the tape: seed with recent history, then follow.
+  pollGatewayEvents(deps, true);
+  setInterval(() => pollGatewayEvents(deps, false), 20_000);
 
   // ── GET /api/btc/theater/stream — the shared broadcast ──
   app.get('/api/btc/theater/stream', (req, res) => {
@@ -302,10 +341,13 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
 
   // ── GET /api/btc/theater/status — meters, cards, clocks ──
   app.get('/api/btc/theater/status', async (_req, res) => {
+    let btc: Record<string, unknown> | null = null;
+    try { btc = await deps.btcContext(); } catch { /* render without */ }
     res.json({
       ok: true,
       nextDemoAt,
       watchers: viewers.size,
+      btc,
       session: sessionView(),
       budgets: Object.fromEntries(Object.entries(BUDGETS).map(([k, v]) =>
         [k, { used: budgetUsed(k), cap: v.cap }])),
@@ -352,7 +394,7 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
 
     const send = sseOpen(res);
     send({ stage: 'start', opener, turns });
-    tapePush(`M2M negotiation opened · ${turns} paid turns`, 'status');
+    tapePush(`M2M negotiation opened · ${turns} paid turns`, 'note');
     try {
       const ln = await deps.ln();
       session.acts += 1;
@@ -380,7 +422,7 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
         send({ stage: 'earnings', earned: { ...earned } });
       }
       send({ stage: 'done', earned });
-      tapePush(`M2M negotiation closed · ${earned.Grok + earned.Claude} shors moved machine to machine`, 'status');
+      tapePush(`M2M negotiation closed · ${earned.Grok + earned.Claude} shors moved machine to machine`, 'note');
     } catch (err: any) {
       logger.warn(`[BTCSOQ:theater] duel failed: ${err.message}`);
       send({ stage: 'error', message: 'The rail hiccuped. Try again.' });

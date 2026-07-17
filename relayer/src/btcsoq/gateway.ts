@@ -728,6 +728,27 @@ export class BtcsoqGateway {
         address: this.config.racePayeeAddress,
         pubkeyHex: await this.signer.pubkey(this.config.racePayeeAddress),
       }),
+      // The Bitcoin context the terminal renders: vault truth + the real,
+      // measured wait the gateway's own deposit endured for ONE confirmation.
+      btcContext: async () => {
+        const s = await this.gatewayStatus();
+        const waited = this.store.listDeposits()
+          .filter((d) => d.confirmedAt && d.firstSeenAt)
+          .map((d) => Math.round((d.confirmedAt! - d.firstSeenAt) / 1000))
+          .filter((sec) => sec > 0);
+        return {
+          network: s.network,
+          crossedSats: s.deposits.totalSats,
+          vaultSats: s.vault ? Number(s.vault.confirmedSats) : null,
+          outstandingSats: s.receipts.outstandingSats,
+          redeemedSats: s.receipts.redeemedSats,
+          covered: s.vault ? Number(s.vault.confirmedSats) >= s.receipts.outstandingSats : null,
+          confPolicy: s.confPolicy.required,
+          depositWaitSec: waited.length ? Math.round(waited.reduce((a, b) => a + b, 0) / waited.length) : null,
+        };
+      },
+      recentAttestations: (limit: number) => this.store.listAttestations().slice(0, limit)
+        .map((a) => ({ id: a.id, kind: a.kind, ts: a.ts, payload: a.payload })),
     };
   }
 
