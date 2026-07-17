@@ -248,13 +248,17 @@ async function runHeartbeat(deps: TheaterDeps) {
     } else {
       const presetId = HEARTBEAT_ASKS[heartbeatN % HEARTBEAT_ASKS.length];
       const question = ASK_PRESETS[presetId];
-      broadcast({ kind: 'demo', stage: 'start', program: 'ask', question });
-      tapePush('scheduled demonstration · a machine gets paid to think', 'note');
-      const r = await ln.performPaidAsk(question, deps.grokUrl, (e) => {
-        broadcast({ kind: 'demo', program: 'ask', ...e });
-        tapeAsk('scheduled', e);
+      // Alternate the answering machine so the room meets both agents.
+      const agent = heartbeatN % 2 === 0
+        ? { name: 'Claude', url: deps.claudeUrl }
+        : { name: 'Grok', url: deps.grokUrl };
+      broadcast({ kind: 'demo', stage: 'start', program: 'ask', question, agent: agent.name });
+      tapePush(`scheduled demonstration · ${agent.name} gets paid to think`, 'note');
+      const r = await ln.performPaidAsk(question, agent.url, (e) => {
+        broadcast({ kind: 'demo', program: 'ask', agent: agent.name, ...e });
+        tapeAsk(`${agent.name} · scheduled`, e);
       });
-      recordSettle(r.amountSat, r.payMs, 'Grok', r.receiptVerified);
+      recordSettle(r.amountSat, r.payMs, agent.name, r.receiptVerified);
       broadcast({ kind: 'demo', stage: 'done', program: 'ask' });
     }
   } catch (err: any) {
