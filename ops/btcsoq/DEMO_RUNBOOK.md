@@ -1,8 +1,14 @@
 # BTCSOQ Demo Runbook — Miami (Mining Disrupt)
 
 The lane being demonstrated: real testnet4 Bitcoin in, a post-quantum receipt
-on Soqucoin stagenet, real Bitcoin back out, every step signed with ML-DSA-44
-and verifiable in the audience's own browsers.
+on Soqucoin stagenet, then the ECONOMY legs — the receipt's loop converts into
+consensus-enforced USDSOQ via the treasury swap, pays a post-quantum Lightning
+invoice, and an AI answers for the money (SOQ-402) — then real Bitcoin back
+out. Every step signed with ML-DSA-44 and verifiable in the audience's own
+browsers, including the seller's signed inference receipt.
+
+Stage view for the projector: **https://soqtec.soqu.org/btcsoq.html?stage**
+(dark, oversized, event toasts; the plain URL is the attendee/phone view).
 
 Public URL: **https://soqtec.soqu.org/btcsoq.html**
 Public API: **https://soqtec-relay.soqu.org/api/btc/gateway**
@@ -30,7 +36,33 @@ curl -s https://soqtec-relay.soqu.org/api/btc/gateway | jq '.gateway | {healthy,
       direction per 24h. Raise via `BTCSOQ_MAX_DAILY_MINT_SATS` /
       `BTCSOQ_MAX_DAILY_RELEASE_SATS` in `/opt/btcsoq-dev/relayer/t4.env`
       + `systemctl restart btcsoq-relayer-t4` if the crowd will exceed that.
-- [ ] Open the page, press **Verify all signatures**, see the green check.
+- [ ] **STANDING FLOAT — the RECEIPT station must never read 0 on demo day.**
+      If everything has been redeemed, run one loop the morning of and leave
+      the receipt outstanding (deposit, let it mint, do NOT redeem). A zero
+      marquee metric reads as "nobody uses this."
+- [ ] **Warm the feed the morning of**: the newest ledger row should be hours
+      old, not weeks. One fresh loop covers this and the standing-float rule
+      at the same time.
+- [ ] **USDSOQ leg** (`gateway.conversions` in the status JSON): quote must
+      answer — `curl -s -H "Authorization: Bearer $SOQ_SIGNER_TOKEN"
+      "http://64.23.129.28:8550/api/v1/convert/quote?direction=soq_to_usdsoq&amount_in=300000000000"`.
+      The engine enforces a $1 minimum PER SWAP at execute time; the per-loop
+      size (`BTCSOQ_CONVERT_SHORS`, currently 3,000 SOQ) must be worth over
+      $1 at the live DexScreener price — re-check if SOQ moved. Mint float
+      must cover (conversions spend gateway float SOQ; ~22K SOQ loaded 7/16,
+      top up from the prod signer with SEPARATE sends of ≤10K SOQ each,
+      field name is "address" on the prod /send).
+- [ ] **Lightning/402 leg** (`gateway.ln402`): seller must 402 —
+      `curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json"
+      -d '{"messages":[{"role":"user","content":"ping"}],"max_tokens":10}'
+      http://127.0.0.1:4020/v1/chat/completions` → expect 402. LSP healthy:
+      `curl -s https://lsp.soqu.org/v1/health`. Channel state lives at
+      `/opt/btcsoq-dev/data-t4/ln-channel.json` (auto-reopens if closed;
+      LSP faucet may be at capacity — the plain open fallback handles it).
+- [ ] Open the page and watch the ledger rows verify THEMSELVES (green
+      checkmarks appear as the feed loads — there is no verify button; the
+      manual reproduction snippet is printed under the table). The latest
+      AI answer block must show "seller receipt ML-DSA-44 verified".
 - [ ] testnet4 block cadence sanity: if the chain has been stuck for hours,
       lead with the recorded loop and let live deposits confirm in the background.
 

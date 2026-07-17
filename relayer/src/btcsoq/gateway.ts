@@ -19,8 +19,10 @@ import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
 import { BitcoinCEA, BitcoinCEAConfig } from '../cea/bitcoin-cea';
 import { NormalizedBurnEvent, BurnConfidence } from '../cea/types';
-import { GatewayStore, BtcIntent, DepositRecord, MintRecord } from './store';
+import { GatewayStore, BtcIntent, DepositRecord, MintRecord, ConvertRecord, Ln402Record } from './store';
 import { MintSignerClient } from './signer-client';
+import { ProdConvertClient } from './convert-client';
+import { Ln402Client } from './ln402';
 import { SoqScanner } from './soq-scan';
 import { BitcoinRpc } from './rpc';
 import { encodeTag } from './receipt';
@@ -61,6 +63,29 @@ export interface BtcsoqConfig extends BitcoinCEAConfig {
   maxDailyReleaseSats: number;
   /** Pause switch: while this file exists, mints and releases are deferred */
   pauseFile: string;
+  // ── USDSOQ conversion leg (WS2, Miami) ──
+  /** PRODUCTION signer base URL (convert engine lives there); empty = leg off */
+  convertSignerUrl: string;
+  convertSignerToken: string;
+  /** Convert treasury deposit address (must match the engine's TreasuryAddrs) */
+  convertTreasuryAddress: string;
+  /** Gateway-held USDSOQ destination (a key in the gateway signer keystore) */
+  convertUsdsoqAddress: string;
+  /** SOQ shors sent through the consensus swap per completed BTC loop */
+  convertSoqShors: number;
+  /** Rolling 24h ceiling on SOQ entering the treasury (0 = unlimited) */
+  maxDailyConvertShors: number;
+  // ── Lightning + SOQ-402 finale (WS3, Miami) ──
+  /** L2SOQ LSP base URL; empty = leg off */
+  ln402LspUrl: string;
+  /** SOQ-402 seller base URL (same VPS: http://127.0.0.1:4020); empty = leg off */
+  ln402SellerUrl: string;
+  /** The on-stage question — fixed so the receipt's request hash is stable */
+  ln402Question: string;
+  /** Hosted payer channel capacity in shors (≤ LSP max_channel_sat) */
+  ln402ChannelShors: number;
+  /** Gateway signer address whose key identifies the payer channel */
+  ln402ChannelAddress: string;
 }
 
 /** How often stuck 'minting'/'redeeming' records are re-driven. */
@@ -85,8 +110,14 @@ export class BtcsoqGateway {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private moneyTimer: ReturnType<typeof setInterval> | null = null;
   private moneyLoopRunning: boolean = false;
+  private convertClient: ProdConvertClient | null = null;
+  private ln402Client: Ln402Client | null = null;
   /** Serializes mint attempts per deposit key (poll tick vs retry tick race) */
   private mintingInFlight: Set<string> = new Set();
+  /** Serializes conversion attempts per deposit key */
+  private convertingInFlight: Set<string> = new Set();
+  /** Serializes 402 attempts per deposit key */
+  private ln402InFlight: Set<string> = new Set();
   /** Last emitted confidence per deposit key — dedup + upgrade detection */
   private seen: Map<string, BurnConfidence> = new Map();
   /** Router sink — when wired, mint routing goes CEA → DUA router → strategy */
@@ -113,6 +144,40 @@ export class BtcsoqGateway {
       pass: config.rpcPass,
       wallet: config.releaseWallet,
     });
+    if (this.convertEnabled()) {
+      this.convertClient = new ProdConvertClient({
+        url: config.convertSignerUrl,
+        token: config.convertSignerToken,
+      });
+    }
+  }
+
+  private convertEnabled(): boolean {
+    return !!(this.config.convertSignerUrl && this.config.convertSignerToken &&
+              this.config.convertTreasuryAddress && this.config.convertUsdsoqAddress &&
+              this.config.convertSoqShors > 0);
+  }
+
+  private ln402Enabled(): boolean {
+    return !!(this.config.ln402LspUrl && this.config.ln402SellerUrl &&
+              this.config.ln402Question && this.config.ln402ChannelAddress);
+  }
+
+  /** Lazy: the channel identity pubkey comes from the gateway signer. */
+  private async getLn402Client(): Promise<Ln402Client> {
+    if (!this.ln402Client) {
+      const pubkey = await this.signer.pubkey(this.config.ln402ChannelAddress);
+      this.ln402Client = new Ln402Client({
+        lspUrl: this.config.ln402LspUrl,
+        sellerUrl: this.config.ln402SellerUrl,
+        question: this.config.ln402Question,
+        dataDir: this.config.dataDir,
+        channelAddress: this.config.ln402ChannelAddress,
+        channelPubkeyHex: pubkey,
+        channelCapacityShors: this.config.ln402ChannelShors,
+      });
+    }
+    return this.ln402Client;
   }
 
   /**
@@ -152,6 +217,12 @@ export class BtcsoqGateway {
         );
       }, MINT_RETRY_MS);
       logger.info(`[BTCSOQ] Money loop armed: mint float=${this.config.mintFromAddress.slice(0, 20)}..., redemption=${this.config.redemptionAddress.slice(0, 20)}..., carrier=${this.config.carrierShors} shors, min deposit=${this.config.minDepositSats} sats`);
+      logger.info(this.convertEnabled()
+        ? `[BTCSOQ] USDSOQ leg armed: ${this.config.convertSoqShors} shors/loop via treasury ${this.config.convertTreasuryAddress.slice(0, 20)}... → ${this.config.convertUsdsoqAddress.slice(0, 20)}...`
+        : '[BTCSOQ] USDSOQ leg off (convert signer/treasury/destination not configured)');
+      logger.info(this.ln402Enabled()
+        ? `[BTCSOQ] Lightning/402 leg armed: LSP ${this.config.ln402LspUrl}, seller ${this.config.ln402SellerUrl}`
+        : '[BTCSOQ] Lightning/402 leg off (LSP/seller/question/channel address not configured)');
     } else {
       logger.warn('[BTCSOQ] Money loop DISABLED (mint signer/addresses not configured) — detection-only mode');
     }
@@ -497,7 +568,246 @@ export class BtcsoqGateway {
       key: rec.key, intentId: rec.intentId, ssqAddress: rec.ssqAddress,
       sats: rec.sats, txid: mintTxid,
     });
+    // Extend the line: the USDSOQ leg rides behind the mint, never blocks it
+    // (failures land in the convert record and the money tick re-drives them).
+    this.startConvertLeg(rec).catch((err) =>
+      logger.warn(`[BTCSOQ] convert leg start failed for ${rec.key.slice(0, 20)}...: ${err.message} — money tick will retry`)
+    );
     return mintTxid;
+  }
+
+  // ── USDSOQ conversion leg (WS2 — the consensus hop) ────
+
+  private dailyConvertedShors(): number {
+    const cutoff = Date.now() - 24 * 3600_000;
+    return this.store.listConverts()
+      .filter((c) => c.createdAt > cutoff)
+      .reduce((s, c) => s + c.soqInShors, 0);
+  }
+
+  /** null = clear to convert; string = deferral reason (retried by the tick). */
+  private convertBreakerReason(shors: number): string | null {
+    if (this.isPaused()) return 'gateway paused (pause file present)';
+    if (this.config.maxDailyConvertShors > 0 &&
+        this.dailyConvertedShors() + shors > this.config.maxDailyConvertShors) {
+      return `daily convert cap: ${this.dailyConvertedShors()} + ${shors} > ${this.config.maxDailyConvertShors} shors/24h`;
+    }
+    return null;
+  }
+
+  /**
+   * Claim the conversion for a minted loop (CAS, one per deposit outpoint
+   * ever) and drive the first attempt. The conversion spends GATEWAY float
+   * SOQ — the attendee's receipt coin is never touched.
+   */
+  private async startConvertLeg(mint: MintRecord): Promise<void> {
+    if (!this.convertEnabled()) return;
+    if (this.store.getConvert(mint.key)) return;
+
+    // Cap-aware claim: don't claim what the breaker would immediately defer —
+    // an over-cap day should leave no backlog of claimed-but-parked records.
+    const deferral = this.convertBreakerReason(this.config.convertSoqShors);
+    if (deferral) {
+      logger.warn(`[BTCSOQ] CONVERT not claimed for ${mint.key.slice(0, 20)}...: ${deferral}`);
+      return;
+    }
+
+    const [depTxid, depVoutStr] = mint.key.split(':');
+    const tag = encodeTag('convert', BigInt(mint.sats), depTxid, Number(depVoutStr));
+    const claimHeight = await this.scanner.tipHeight();
+    const rec: ConvertRecord = {
+      key: mint.key,
+      intentId: mint.intentId,
+      ssqAddress: mint.ssqAddress,
+      sats: mint.sats,
+      soqInShors: this.config.convertSoqShors,
+      opReturnHex: tag.toString('hex'),
+      status: 'converting',
+      claimHeight,
+      attempts: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    if (!(await this.store.claimConvert(rec))) return;
+    logger.info(`[BTCSOQ] CONVERT claimed for ${mint.key.slice(0, 20)}... (${rec.soqInShors} shors → USDSOQ via treasury)`);
+    await this.attemptConvert(rec);
+  }
+
+  /**
+   * Drive one conversion attempt. Phase A: the BSQ1-'C'-tagged SOQ deposit
+   * into the treasury — ALWAYS chain-checked first (the tag makes the send
+   * recoverable; blind re-send is the pool double-credit class). Phase B:
+   * the prod signer's convert execute, idempotent per treasury outpoint on
+   * the signer side, so every retry is safe.
+   */
+  private async attemptConvert(rec: ConvertRecord): Promise<void> {
+    if (!this.convertClient) return;
+    if (this.convertingInFlight.has(rec.key)) return;
+    const deferral = this.convertBreakerReason(rec.treasuryTxid ? 0 : rec.soqInShors);
+    if (deferral) {
+      logger.warn(`[BTCSOQ] CONVERT deferred for ${rec.key.slice(0, 20)}...: ${deferral}`);
+      return;
+    }
+    this.convertingInFlight.add(rec.key);
+    try {
+      if (!rec.treasuryTxid) {
+        const payload = Buffer.from(rec.opReturnHex, 'hex');
+        const found = await this.scanner.findMintTx(payload, rec.claimHeight);
+        if (found) {
+          if (found.carrierAddress && found.carrierAddress !== this.config.convertTreasuryAddress) {
+            logger.error(`[BTCSOQ] CONVERT ${found.txid.slice(0, 16)}... pays ${found.carrierAddress}, expected treasury — flagging, NOT proceeding`);
+            rec.lastError = `treasury address mismatch on recovered convert send ${found.txid}`;
+            await this.store.putConvert(rec);
+            return;
+          }
+          rec.treasuryTxid = found.txid;
+          await this.store.putConvert(rec);
+          logger.info(`[BTCSOQ] CONVERT treasury send recovered from chain: ${found.txid.slice(0, 16)}...`);
+        } else {
+          rec.attempts += 1;
+          await this.store.putConvert(rec);
+          const res = await this.signer.sendBtcsoqMint({
+            recipientAddress: this.config.convertTreasuryAddress,
+            amount: rec.soqInShors,
+            opReturnHex: rec.opReturnHex,
+            fromAddress: this.config.mintFromAddress,
+          });
+          rec.treasuryTxid = res.txid;
+          await this.store.putConvert(rec);
+          logger.info(`[BTCSOQ] CONVERT treasury deposit sent: ${rec.soqInShors} shors (tx ${res.txid.slice(0, 16)}...)`);
+        }
+      }
+
+      const result = await this.convertClient.execute(
+        'soq_to_usdsoq', rec.treasuryTxid, this.config.convertUsdsoqAddress,
+      );
+      rec.status = 'converted';
+      rec.payoutTxid = result.payout_txid;
+      rec.usdsoqOutShors = result.amount_out;
+      rec.convertedAt = rec.convertedAt ?? Date.now();
+      rec.lastError = undefined;
+      await this.store.putConvert(rec);
+      logger.info(`[BTCSOQ] CONVERTED ${rec.soqInShors} shors → ${result.amount_out} USDSOQ units (payout ${result.payout_txid.slice(0, 16)}...${result.idempotent ? ', idempotent replay' : ''}) — loop ${rec.key.slice(0, 20)}... reached the stablecoin`);
+      await this.attest('converted-usdsoq', {
+        key: rec.key, intentId: rec.intentId, ssqAddress: rec.ssqAddress,
+        sats: rec.sats, txid: result.payout_txid,
+        detail: {
+          soqInShors: rec.soqInShors,
+          usdsoqOutShors: result.amount_out,
+          treasuryTxid: rec.treasuryTxid,
+        },
+      });
+      // The finale rides behind the stablecoin hop: Bitcoin pays an AI.
+      this.startLn402Leg(rec).catch((err) =>
+        logger.warn(`[BTCSOQ] 402 leg start failed for ${rec.key.slice(0, 20)}...: ${err.message} — money tick will retry`)
+      );
+    } catch (err: any) {
+      rec.lastError = err.message;
+      await this.store.putConvert(rec);
+      // Expected while the treasury deposit is under the engine's conf
+      // policy — the money tick retries until it clears.
+      logger.warn(`[BTCSOQ] CONVERT attempt for ${rec.key.slice(0, 20)}... not complete: ${err.message} — stays 'converting', retry in ${MINT_RETRY_MS / 1000}s`);
+    } finally {
+      this.convertingInFlight.delete(rec.key);
+    }
+  }
+
+  // ── Lightning + SOQ-402 leg (WS3 — the finale) ─────────
+
+  /**
+   * Claim the 402 leg for a converted loop (CAS, one per deposit outpoint
+   * ever): the gateway pays a post-quantum Lightning invoice and an AI
+   * answers for the money. Costs ~333 shors per loop on the hosted rail.
+   */
+  private async startLn402Leg(convert: ConvertRecord): Promise<void> {
+    if (!this.ln402Enabled()) return;
+    if (this.store.getLn402(convert.key)) return;
+
+    const rec: Ln402Record = {
+      key: convert.key,
+      intentId: convert.intentId,
+      ssqAddress: convert.ssqAddress,
+      sats: convert.sats,
+      status: 'asking',
+      question: this.config.ln402Question,
+      attempts: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    if (!(await this.store.claimLn402(rec))) return;
+    logger.info(`[BTCSOQ] 402 claimed for ${convert.key.slice(0, 20)}... — asking the machine`);
+    await this.attempt402(rec);
+  }
+
+  /**
+   * Drive one 402 attempt: challenge (pins an invoice) → pay (idempotent
+   * against LSP invoice status) → redeem (retry-safe until the seller marks
+   * the invoice redeemed). Every step persists before money moves; an
+   * expired invoice is dropped and re-challenged, never re-paid.
+   */
+  private async attempt402(rec: Ln402Record): Promise<void> {
+    if (!this.ln402Enabled()) return;
+    if (this.ln402InFlight.has(rec.key)) return;
+    if (this.isPaused()) {
+      logger.warn(`[BTCSOQ] 402 deferred for ${rec.key.slice(0, 20)}...: gateway paused`);
+      return;
+    }
+    this.ln402InFlight.add(rec.key);
+    try {
+      const ln = await this.getLn402Client();
+
+      if (!rec.invoiceId) {
+        rec.attempts += 1;
+        await this.store.putLn402(rec);
+        const c = await ln.challenge();
+        rec.invoiceId = c.invoiceId;
+        rec.amountSat = c.amountSat;
+        rec.sellerPub = c.sellerPub;
+        await this.store.putLn402(rec);
+        logger.info(`[BTCSOQ] 402 challenge for ${rec.key.slice(0, 20)}...: invoice ${c.invoiceId} (${c.amountSat} shors)`);
+      }
+
+      const status = await ln.invoiceStatus(rec.invoiceId);
+      if (status === 'expired') {
+        logger.warn(`[BTCSOQ] 402 invoice ${rec.invoiceId} expired unpaid — re-challenging next tick`);
+        rec.invoiceId = undefined;
+        rec.sellerPub = undefined;
+        await this.store.putLn402(rec);
+        return;
+      }
+      if (status === 'pending') {
+        await ln.payInvoice(rec.invoiceId);
+        logger.info(`[BTCSOQ] 402 invoice ${rec.invoiceId} PAID over the PQ Lightning rail`);
+      }
+
+      const ans = await ln.redeem(rec.invoiceId, rec.sellerPub!);
+      rec.status = 'answered';
+      rec.answer = ans.answer;
+      rec.model = ans.model;
+      rec.receipt = ans.receipt;
+      rec.receiptVerified = ans.receiptVerified;
+      rec.responseSha256 = ans.responseSha256;
+      rec.answeredAt = rec.answeredAt ?? Date.now();
+      rec.lastError = undefined;
+      await this.store.putLn402(rec);
+      logger.info(`[BTCSOQ] 402 ANSWERED for ${rec.key.slice(0, 20)}... (model ${rec.model}, seller receipt ${rec.receiptVerified ? 'VERIFIED' : 'UNVERIFIED'}) — Bitcoin paid a machine for an answer`);
+      await this.attest('lightning-paid', {
+        key: rec.key, intentId: rec.intentId, ssqAddress: rec.ssqAddress,
+        sats: rec.sats, txid: rec.invoiceId,
+        detail: {
+          invoiceId: rec.invoiceId,
+          amountShors: rec.amountSat ?? 0,
+          responseSha256: rec.responseSha256 ?? '',
+          sellerReceiptVerified: rec.receiptVerified ? 1 : 0,
+        },
+      });
+    } catch (err: any) {
+      rec.lastError = err.message;
+      await this.store.putLn402(rec);
+      logger.warn(`[BTCSOQ] 402 attempt for ${rec.key.slice(0, 20)}... not complete: ${err.message} — stays 'asking', retry in ${MINT_RETRY_MS / 1000}s`);
+    } finally {
+      this.ln402InFlight.delete(rec.key);
+    }
   }
 
   private async transition(intent: BtcIntent, status: BtcIntent['status'], dep: DepositRecord): Promise<void> {
@@ -528,6 +838,7 @@ export class BtcsoqGateway {
    */
   private async attest(kind: AttestedEventKind, f: {
     key: string; intentId: string; ssqAddress: string; sats: number; txid: string;
+    detail?: Record<string, string | number>;
   }): Promise<void> {
     if (!this.config.attestationAddress) return;
     const id = `${kind}:${f.key}`;
@@ -542,6 +853,7 @@ export class BtcsoqGateway {
       sats: f.sats,
       txid: f.txid,
       ts: Date.now(),
+      detail: f.detail,
     });
     const rec: AttestationRecord = {
       id,
@@ -684,6 +996,35 @@ export class BtcsoqGateway {
           await this.attemptRelease(rec);
         }
       }
+      // USDSOQ leg: claim any minted loop still missing its conversion
+      // (crash between finalizeMint and claim, or leg enabled after the
+      // fact — pre-WS2 loops convert retroactively), then drive in-flight.
+      if (this.convertEnabled()) {
+        for (const m of this.store.listMints()) {
+          if (m.status !== 'minting' && !this.store.getConvert(m.key)) {
+            await this.startConvertLeg(m);
+          }
+        }
+        for (const rec of this.store.listConverts()) {
+          if (rec.status === 'converting') {
+            await this.attemptConvert(rec);
+          }
+        }
+      }
+      // 402 leg: claim any converted loop still missing its answer, then
+      // drive in-flight asks (crash anywhere resumes from persisted state).
+      if (this.ln402Enabled()) {
+        for (const c of this.store.listConverts()) {
+          if (c.status === 'converted' && !this.store.getLn402(c.key)) {
+            await this.startLn402Leg(c);
+          }
+        }
+        for (const rec of this.store.listLn402()) {
+          if (rec.status === 'asking') {
+            await this.attempt402(rec);
+          }
+        }
+      }
       // Attestations that failed to sign (signer down) get retried here
       for (const att of this.store.listAttestations()) {
         if (att.signatureHex === null) {
@@ -707,6 +1048,16 @@ export class BtcsoqGateway {
     }
     for (const rec of redeeming) {
       await this.attemptRelease(rec);    // wallet-history check first, then re-release
+    }
+    for (const rec of this.store.listConverts()) {
+      if (rec.status === 'converting') {
+        await this.attemptConvert(rec);  // tag-scan first, then re-send
+      }
+    }
+    for (const rec of this.store.listLn402()) {
+      if (rec.status === 'asking') {
+        await this.attempt402(rec);      // invoice-status check first, never re-pay
+      }
     }
   }
 
@@ -941,6 +1292,29 @@ export class BtcsoqGateway {
         inFlight: mints.filter((m) => m.status === 'minting' || m.status === 'redeeming').length,
         redemptionAddress: this.config.redemptionAddress || null,
       },
+      conversions: (() => {
+        const converts = this.store.listConverts();
+        const done = converts.filter((c) => c.status === 'converted');
+        return {
+          enabled: this.convertEnabled(),
+          count: done.length,
+          inFlight: converts.length - done.length,
+          soqInShors: done.reduce((s, c) => s + c.soqInShors, 0),
+          usdsoqOutShors: done.reduce((s, c) => s + (c.usdsoqOutShors ?? 0), 0),
+          usdsoqAddress: this.config.convertUsdsoqAddress || null,
+        };
+      })(),
+      ln402: (() => {
+        const asks = this.store.listLn402();
+        const answered = asks.filter((a) => a.status === 'answered');
+        return {
+          enabled: this.ln402Enabled(),
+          answered: answered.length,
+          inFlight: asks.length - answered.length,
+          paidShors: answered.reduce((s, a) => s + (a.amountSat ?? 0), 0),
+          receiptsVerified: answered.filter((a) => a.receiptVerified).length,
+        };
+      })(),
       intents: {
         total: intents.length,
         awaiting: intents.filter((i) => i.status === 'awaiting-deposit').length,
@@ -967,6 +1341,11 @@ export class BtcsoqGateway {
 
   listRecentDeposits(limit: number = 50): DepositRecord[] {
     return this.store.listDeposits().slice(0, limit);
+  }
+
+  /** Paid AI answers + seller receipts (the page re-verifies both sigs). */
+  listAnswers(limit: number = 20): Ln402Record[] {
+    return this.store.listLn402().slice(0, limit);
   }
 }
 

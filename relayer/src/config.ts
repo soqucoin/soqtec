@@ -97,6 +97,19 @@ export interface BtcsoqSettings {
   maxDailyMintSats: number;
   maxDailyReleaseSats: number;
   pauseFile: string;
+  // USDSOQ conversion leg (WS2)
+  convertSignerUrl: string;
+  convertSignerToken: string;
+  convertTreasuryAddress: string;
+  convertUsdsoqAddress: string;
+  convertSoqShors: number;
+  maxDailyConvertShors: number;
+  // Lightning + SOQ-402 finale (WS3)
+  ln402LspUrl: string;
+  ln402SellerUrl: string;
+  ln402Question: string;
+  ln402ChannelShors: number;
+  ln402ChannelAddress: string;
 }
 
 export function loadConfig(): RelayerConfig {
@@ -205,5 +218,27 @@ function loadBtcsoqSettings(): BtcsoqSettings {
     maxDailyReleaseSats: parseInt(process.env.BTCSOQ_MAX_DAILY_RELEASE_SATS || '5000000'),
     pauseFile: process.env.BTCSOQ_PAUSE_FILE ||
       join(process.env.BTCSOQ_DATA_DIR || './btcsoq-data', 'PAUSE'),
+    // USDSOQ conversion leg (WS2): the gateway is a convert CUSTOMER of the
+    // production signer — deposit-is-the-auth, no authority keys anywhere
+    // near this path. All four values set = leg on.
+    convertSignerUrl: process.env.BTCSOQ_CONVERT_SIGNER_URL || '',
+    convertSignerToken: process.env.BTCSOQ_CONVERT_SIGNER_TOKEN || '',
+    convertTreasuryAddress: process.env.BTCSOQ_CONVERT_TREASURY_ADDRESS || '',
+    convertUsdsoqAddress: process.env.BTCSOQ_CONVERT_USDSOQ_ADDRESS || '',
+    // 1 SOQ of gateway float per completed BTC loop (tunable per demo)
+    convertSoqShors: parseInt(process.env.BTCSOQ_CONVERT_SHORS || '100000000'),
+    // Rolling-24h ceiling on float SOQ entering the treasury: 50 SOQ
+    maxDailyConvertShors: parseInt(process.env.BTCSOQ_MAX_DAILY_CONVERT_SHORS || '5000000000'),
+    // Lightning + SOQ-402 finale (WS3): both URLs + question + channel
+    // identity set = leg on. The seller runs on this same VPS.
+    ln402LspUrl: process.env.BTCSOQ_LN402_LSP_URL || '',
+    ln402SellerUrl: process.env.BTCSOQ_LN402_SELLER_URL || '',
+    ln402Question: process.env.BTCSOQ_LN402_QUESTION ||
+      'In one sentence: what does a 2,420-byte ML-DSA-44 signature buy Bitcoin that a 64-byte Schnorr signature cannot?',
+    ln402ChannelShors: parseInt(process.env.BTCSOQ_LN402_CHANNEL_SHORS || '100000000'),
+    // Channel identity rides the same gateway key as the USDSOQ destination
+    // unless split out explicitly.
+    ln402ChannelAddress: process.env.BTCSOQ_LN402_CHANNEL_ADDRESS ||
+      process.env.BTCSOQ_CONVERT_USDSOQ_ADDRESS || '',
   };
 }

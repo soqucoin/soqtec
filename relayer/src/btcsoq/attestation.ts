@@ -21,7 +21,9 @@ export type AttestedEventKind =
   | 'deposit-confirmed'   // BTC in the vault at policy confirmations
   | 'receipt-minted'      // BTCSOQ receipt issued on stagenet
   | 'receipt-returned'    // receipt carrier spent to the redemption address
-  | 'btc-released';       // BTC paid back out
+  | 'btc-released'        // BTC paid back out
+  | 'converted-usdsoq'    // gateway value swapped into consensus USDSOQ (WS2)
+  | 'lightning-paid';     // PQ Lightning invoice paid, AI answered for it (WS3)
 
 export interface AttestationRecord {
   /** `${kind}:${depositKey}` — one attestation per event per deposit, ever */
@@ -45,9 +47,12 @@ export interface AttestationFields {
   intentId: string;
   ssqAddress: string;
   sats: number;
-  /** The transaction this event points at (deposit/mint/spend/release txid) */
+  /** The transaction this event points at (deposit/mint/spend/release/payout txid) */
   txid: string;
   ts: number;
+  /** Kind-specific extras (e.g. converted-usdsoq: soqIn/usdsoqOut/treasuryTxid).
+   *  Safe to add: verifiers hash the stored payload string verbatim. */
+  detail?: Record<string, string | number>;
 }
 
 /** Fixed field order, no whitespace — but verifiers never re-serialize:
@@ -64,6 +69,7 @@ export function buildPayload(f: AttestationFields): string {
     sats: f.sats,
     txid: f.txid,
     ts: f.ts,
+    ...(f.detail ? { detail: f.detail } : {}),
   });
 }
 

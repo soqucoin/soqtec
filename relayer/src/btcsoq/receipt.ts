@@ -7,25 +7,39 @@
  *   magic   "BSQ1"          4 bytes   (mirrors the SNS1 purpose-binding style;
  *                                      the signer's mint endpoint refuses
  *                                      anything not BSQ1-prefixed)
- *   op      'M' | 'R'       1 byte    mint | redemption spend
+ *   op      'M' | 'R' | 'C' 1 byte    mint | redemption spend | convert leg
  *   sats    u64 LE          8 bytes   BTC satoshis the receipt is backed by
  *   btcTxid                32 bytes   deposit txid, display order (explorer hex)
  *   vout    u32 LE          4 bytes   deposit output index
+ *
+ * 'C' (WS2, Miami): the gateway's SOQ deposit into the convert treasury,
+ * tagged with the BTC deposit outpoint whose loop it extends — the treasury
+ * send is chain-recoverable exactly like mints (scan for the tag, never
+ * blind re-send).
  */
 
 export const BSQ_MAGIC = 'BSQ1';
-export const BSQ_OP_MINT = 0x4d;    // 'M'
-export const BSQ_OP_REDEEM = 0x52;  // 'R'
+export const BSQ_OP_MINT = 0x4d;     // 'M'
+export const BSQ_OP_REDEEM = 0x52;   // 'R'
+export const BSQ_OP_CONVERT = 0x43;  // 'C'
 export const BSQ_TAG_LEN = 49;
 
+export type BtcsoqTagOp = 'mint' | 'redeem' | 'convert';
+
 export interface BtcsoqTag {
-  op: 'mint' | 'redeem';
+  op: BtcsoqTagOp;
   sats: bigint;
   btcTxid: string;
   vout: number;
 }
 
-export function encodeTag(op: 'mint' | 'redeem', sats: bigint, btcTxid: string, vout: number): Buffer {
+const OP_BYTE: Record<BtcsoqTagOp, number> = {
+  mint: BSQ_OP_MINT,
+  redeem: BSQ_OP_REDEEM,
+  convert: BSQ_OP_CONVERT,
+};
+
+export function encodeTag(op: BtcsoqTagOp, sats: bigint, btcTxid: string, vout: number): Buffer {
   if (!/^[0-9a-f]{64}$/.test(btcTxid)) {
     throw new Error(`encodeTag: malformed txid ${btcTxid}`);
   }
@@ -34,7 +48,7 @@ export function encodeTag(op: 'mint' | 'redeem', sats: bigint, btcTxid: string, 
   }
   const buf = Buffer.alloc(BSQ_TAG_LEN);
   buf.write(BSQ_MAGIC, 0, 'ascii');
-  buf.writeUInt8(op === 'mint' ? BSQ_OP_MINT : BSQ_OP_REDEEM, 4);
+  buf.writeUInt8(OP_BYTE[op], 4);
   buf.writeBigUInt64LE(sats, 5);
   Buffer.from(btcTxid, 'hex').copy(buf, 13);
   buf.writeUInt32LE(vout, 45);
@@ -45,9 +59,10 @@ export function decodeTag(buf: Buffer): BtcsoqTag | null {
   if (buf.length !== BSQ_TAG_LEN) return null;
   if (buf.toString('ascii', 0, 4) !== BSQ_MAGIC) return null;
   const opByte = buf.readUInt8(4);
-  if (opByte !== BSQ_OP_MINT && opByte !== BSQ_OP_REDEEM) return null;
+  const op = (Object.entries(OP_BYTE).find(([, b]) => b === opByte) || [])[0] as BtcsoqTagOp | undefined;
+  if (!op) return null;
   return {
-    op: opByte === BSQ_OP_MINT ? 'mint' : 'redeem',
+    op,
     sats: buf.readBigUInt64LE(5),
     btcTxid: buf.subarray(13, 45).toString('hex'),
     vout: buf.readUInt32LE(45),

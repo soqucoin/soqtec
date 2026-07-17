@@ -96,6 +96,82 @@ export interface MintRecord {
   updatedAt: number;
 }
 
+/**
+ * USDSOQ conversion ledger entry (WS2), keyed by the DEPOSIT outpoint —
+ * one conversion per BTC loop, ever. Same CAS discipline as mints: the
+ * claim write (status='converting') lands BEFORE any money moves, and the
+ * treasury send is recovered from chain via its BSQ1 'C' tag, never re-sent
+ * blind. The prod-signer convert call is idempotent per treasury outpoint
+ * on the signer side, so phase two is retry-safe by construction.
+ */
+export type ConvertStatus =
+  | 'converting'   // claimed; treasury send and/or convert call in flight
+  | 'converted';   // USDSOQ paid out to the gateway's USDSOQ address
+
+export interface ConvertRecord {
+  /** BTC deposit `txid:vout` — the loop identity + idempotency key */
+  key: string;
+  intentId: string;
+  ssqAddress: string;
+  /** BTC sats of the loop this conversion extends */
+  sats: number;
+  /** SOQ shors sent into the convert treasury */
+  soqInShors: number;
+  /** Full BSQ1 'C' tag hex — treasury-send recovery scans match on this */
+  opReturnHex: string;
+  status: ConvertStatus;
+  /** Stagenet tip height when the claim was written — bounds recovery scans */
+  claimHeight: number;
+  attempts: number;
+  lastError?: string;
+  /** The gateway's tagged SOQ deposit into the treasury */
+  treasuryTxid?: string;
+  /** The prod signer's USDSOQ payout tx */
+  payoutTxid?: string;
+  /** USDSOQ base units received (from the convert result) */
+  usdsoqOutShors?: number;
+  createdAt: number;
+  updatedAt: number;
+  convertedAt?: number;
+}
+
+/**
+ * Lightning/SOQ-402 ledger entry (WS3), keyed by the DEPOSIT outpoint — one
+ * paid AI answer per BTC loop, ever. The 402 rail is naturally two-phase
+ * crash-safe: the challenge pins an invoice id; paying is idempotent-checked
+ * against LSP invoice status; redeeming retries safely until the seller
+ * marks the invoice redeemed. Worst crash case strands one paid-but-never-
+ * redeemed invoice (333 shors) — logged, never doubled silently.
+ */
+export type Ln402Status =
+  | 'asking'     // claimed; challenge/pay/redeem in flight
+  | 'answered';  // paid answer + signed seller receipt captured
+
+export interface Ln402Record {
+  /** BTC deposit `txid:vout` — the loop identity + idempotency key */
+  key: string;
+  intentId: string;
+  ssqAddress: string;
+  /** BTC sats of the loop this answer extends */
+  sats: number;
+  status: Ln402Status;
+  question: string;
+  invoiceId?: string;
+  amountSat?: number;
+  sellerPub?: string;
+  answer?: string;
+  model?: string;
+  /** The seller's ML-DSA-44 SignedReceipt {receipt, sig} — page re-verifies it */
+  receipt?: unknown;
+  receiptVerified?: boolean;
+  responseSha256?: string;
+  attempts: number;
+  lastError?: string;
+  createdAt: number;
+  updatedAt: number;
+  answeredAt?: number;
+}
+
 export interface DepositRecord {
   /** `txid:vout` — the replay/idempotency key (DL §5) */
   key: string;
@@ -119,15 +195,17 @@ interface GatewayState {
   intents: Record<string, BtcIntent>;
   deposits: Record<string, DepositRecord>;
   mints: Record<string, MintRecord>;
+  converts: Record<string, ConvertRecord>;
+  ln402: Record<string, Ln402Record>;
   attestations: Record<string, AttestationRecord>;
   meta: { pollCursor?: string; soqScanHeight?: number };
 }
 
-const EMPTY_STATE: GatewayState = { intents: {}, deposits: {}, mints: {}, attestations: {}, meta: {} };
+const EMPTY_STATE: GatewayState = { intents: {}, deposits: {}, mints: {}, converts: {}, ln402: {}, attestations: {}, meta: {} };
 
 export class GatewayStore {
   private file: string;
-  private state: GatewayState = { ...EMPTY_STATE, intents: {}, deposits: {}, mints: {}, attestations: {}, meta: {} };
+  private state: GatewayState = { ...EMPTY_STATE, intents: {}, deposits: {}, mints: {}, converts: {}, ln402: {}, attestations: {}, meta: {} };
   private saveChain: Promise<void> = Promise.resolve();
 
   constructor(dataDir: string) {
@@ -143,6 +221,8 @@ export class GatewayStore {
         intents: parsed.intents || {},
         deposits: parsed.deposits || {},
         mints: parsed.mints || {},
+        converts: parsed.converts || {},
+        ln402: parsed.ln402 || {},
         attestations: parsed.attestations || {},
         meta: parsed.meta || {},
       };
@@ -232,6 +312,58 @@ export class GatewayStore {
     const [txid, voutStr] = outpoint.split(':');
     if (voutStr !== '0') return undefined;   // carrier is always vout[0] by construction
     return Object.values(this.state.mints).find((m) => m.mintTxid === txid);
+  }
+
+  // ── Conversion ledger (WS2) ────────────────────────────
+
+  /**
+   * Claim a deposit outpoint for USDSOQ conversion. Returns false if ANY
+   * record already exists for the key — same contract as claimMint: after
+   * a false, the caller must never move money for this key.
+   */
+  async claimConvert(rec: ConvertRecord): Promise<boolean> {
+    if (this.state.converts[rec.key]) return false;
+    this.state.converts[rec.key] = rec;
+    await this.persist();
+    return true;
+  }
+
+  async putConvert(rec: ConvertRecord): Promise<void> {
+    rec.updatedAt = Date.now();
+    this.state.converts[rec.key] = rec;
+    await this.persist();
+  }
+
+  getConvert(key: string): ConvertRecord | undefined {
+    return this.state.converts[key];
+  }
+
+  listConverts(): ConvertRecord[] {
+    return Object.values(this.state.converts).sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  // ── Lightning/402 ledger (WS3) ─────────────────────────
+
+  /** Claim a deposit outpoint for the 402 leg. Same CAS contract as mints. */
+  async claimLn402(rec: Ln402Record): Promise<boolean> {
+    if (this.state.ln402[rec.key]) return false;
+    this.state.ln402[rec.key] = rec;
+    await this.persist();
+    return true;
+  }
+
+  async putLn402(rec: Ln402Record): Promise<void> {
+    rec.updatedAt = Date.now();
+    this.state.ln402[rec.key] = rec;
+    await this.persist();
+  }
+
+  getLn402(key: string): Ln402Record | undefined {
+    return this.state.ln402[key];
+  }
+
+  listLn402(): Ln402Record[] {
+    return Object.values(this.state.ln402).sort((a, b) => b.createdAt - a.createdAt);
   }
 
   // ── Attestations ───────────────────────────────────────

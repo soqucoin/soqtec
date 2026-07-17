@@ -647,8 +647,10 @@ async function directMintUsdsoq(
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${signerToken}`,
     },
+    // Field name is `to` (Go MintUSDSOQRequest) — sending `address` decodes
+    // as an empty recipient and the signer 400s ("to is required").
     body: JSON.stringify({
-      address: soqAddress,
+      to: soqAddress,
       amount: amountSat,
       fee_rate: 10,
     }),
