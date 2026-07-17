@@ -412,11 +412,16 @@ export class BtcsoqGateway {
 
     // Intent transition
     if (intent && intent.kind === 'deposit') {
-      const expired = intent.status === 'expired';
-      if (expired) {
-        // Funds to an expired intent are still recorded (dep above) — flag, don't mint.
-        logger.warn(`[BTCSOQ] Deposit to EXPIRED intent ${intent.id.slice(0, 8)} — recorded, held for manual handling`);
-        return;
+      if (intent.status === 'expired') {
+        // A fortress address never goes dead: pool payouts arrive on their
+        // own schedule (threshold-gated, sometimes days apart), so money
+        // revives the intent and processing continues normally. The
+        // address→ssq binding lives in the wallet label and never changed.
+        intent.status = 'awaiting-deposit';
+        intent.expiresAt = Date.now() + this.config.intentTtlHours * 3600_000;
+        intent.updatedAt = Date.now();
+        await this.store.putIntent(intent);
+        logger.info(`[BTCSOQ] Deposit to expired intent ${intent.id.slice(0, 8)} — revived, processing normally`);
       }
       if (evt.confidence === 'mempool' && intent.status === 'awaiting-deposit') {
         await this.transition(intent, 'deposit-seen', dep);
@@ -1163,9 +1168,27 @@ export class BtcsoqGateway {
     }
 
     // Bind to the oldest open redeem intent for this attendee address.
-    const redeemIntent = this.store.listIntents()
+    let redeemIntent = this.store.listIntents()
       .filter((i) => i.kind === 'redeem' && i.status === 'awaiting-receipt' && i.ssqAddress === rec.ssqAddress)
       .sort((a, b) => a.createdAt - b.createdAt)[0];
+
+    if (!redeemIntent) {
+      // The registration may have aged out while the receipt sat in a
+      // wallet. The payout address was this owner's explicit instruction:
+      // revive their most recent expired registration instead of stranding
+      // the redemption. (Newest, not oldest — the latest instruction wins.)
+      const dormant = this.store.listIntents()
+        .filter((i) => i.kind === 'redeem' && i.status === 'expired' && i.ssqAddress === rec.ssqAddress)
+        .sort((a, b) => b.createdAt - a.createdAt)[0];
+      if (dormant) {
+        dormant.status = 'awaiting-receipt';
+        dormant.expiresAt = Date.now() + this.config.intentTtlHours * 3600_000;
+        dormant.updatedAt = Date.now();
+        await this.store.putIntent(dormant);
+        logger.info(`[BTCSOQ] Redeem intent ${dormant.id.slice(0, 8)} for ${rec.ssqAddress.slice(0, 20)}... — revived by returned receipt`);
+        redeemIntent = dormant;
+      }
+    }
 
     if (!redeemIntent) {
       logger.warn(`[BTCSOQ] Receipt ${rec.mintTxid?.slice(0, 16)}... returned (tx ${receiptSpendTxid.slice(0, 16)}...) but NO open redeem intent for ${rec.ssqAddress.slice(0, 20)}... — held for manual handling (no payout address)`);
