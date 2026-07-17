@@ -10,8 +10,22 @@ browsers, including the seller's signed inference receipt.
 Stage view for the projector: **https://soqtec.soqu.org/btcsoq.html?stage**
 (dark, oversized, event toasts; the plain URL is the attendee/phone view).
 
-Public URL: **https://soqtec.soqu.org/btcsoq.html**
+**DEMO FRONT DOOR: https://soqtec.soqu.org/live.html — the three doors (pick
+your proof).** Act A: Bitcoin buys a thought (402 paywall → Lightning pays in
+~30 ms → AI answers → receipt verifies in the viewer's browser). Act B:
+machines doing business (Ada and Bit negotiate, every reply bought). Act C:
+the race (10 real Lightning payments vs Bitcoin's live block clock). Each act
+runs the REAL rails per press. Lead with a door; the proof page is for the
+skeptics afterward.
+
+Proof page: **https://soqtec.soqu.org/btcsoq.html**
 Public API: **https://soqtec-relay.soqu.org/api/btc/gateway**
+
+Theater pre-flight (T-60, in addition to the checks below): open live.html,
+run each act once. Budget notes: acts spend from the gateway payer channel
+(ask 333 shors, duel ~1.3K, race 10K); daily caps ask 500 / duel 60 /
+race 100 (in-memory, reset on relayer restart). Both agents must 402:
+Ada :4020 AND Bit :4021.
 
 ## Pre-demo checklist (T-60 min, all on Services VPS 143.110.229.69)
 

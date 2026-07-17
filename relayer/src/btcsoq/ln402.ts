@@ -80,11 +80,11 @@ export class Ln402Client {
     return join(this.config.dataDir, 'ln-channel.json');
   }
 
-  private chatBody(): string {
+  private chatBody(question: string): string {
     // The EXACT same body is sent for challenge and redeem — the receipt's
     // request_sha256 then provably covers the question that was asked.
     return JSON.stringify({
-      messages: [{ role: 'user', content: this.config.question }],
+      messages: [{ role: 'user', content: question }],
       max_tokens: 120,
     });
   }
@@ -141,9 +141,10 @@ export class Ln402Client {
     return channelId!;
   }
 
-  /** Ask without paying → the 402 challenge (a fresh pending invoice). */
-  async challenge(): Promise<Challenge402> {
-    const resp = await this.seller(undefined);
+  /** Ask without paying → the 402 challenge (a fresh pending invoice).
+   *  Defaults preserve the gateway leg's fixed question and seller. */
+  async challenge(question?: string, sellerUrl?: string): Promise<Challenge402> {
+    const resp = await this.seller(undefined, question ?? this.config.question, sellerUrl);
     if (resp.status !== 402) {
       throw new Error(`seller returned ${resp.status} to an unpaid request (expected 402)`);
     }
@@ -194,8 +195,8 @@ export class Ln402Client {
   }
 
   /** Redeem a PAID invoice: same request + X-SOQ-Invoice → answer + receipt. */
-  async redeem(invoiceId: string, expectedSellerPub: string): Promise<Answer402> {
-    const resp = await this.seller(invoiceId);
+  async redeem(invoiceId: string, expectedSellerPub: string, question?: string, sellerUrl?: string): Promise<Answer402> {
+    const resp = await this.seller(invoiceId, question ?? this.config.question, sellerUrl);
     if (resp.status === 402) {
       throw new Error('seller re-challenged (invoice not paid or already redeemed)');
     }
@@ -215,6 +216,109 @@ export class Ln402Client {
       receiptVerified,
       responseSha256: receipt.receipt.response_sha256 ?? createHash('sha256').update(answer, 'utf8').digest('hex'),
     };
+  }
+
+  // ── Theater primitives (the payoff acts ride the same rails) ──
+
+  /**
+   * One complete paid ask with staged progress events — the live theater
+   * version of the gateway's 402 leg. Ephemeral: writes nothing anywhere,
+   * every stage is the real rail (real invoice, real eLTOO state bump,
+   * real signed receipt).
+   */
+  async performPaidAsk(
+    question: string,
+    sellerUrl: string,
+    onEvent: (e: Record<string, unknown>) => void,
+  ): Promise<Answer402 & { invoiceId: string; amountSat: number; payMs: number; totalMs: number }> {
+    const t0 = Date.now();
+    const c = await this.challenge(question, sellerUrl);
+    onEvent({ stage: 'challenge', invoiceId: c.invoiceId, amountSat: c.amountSat, sellerPub: c.sellerPub });
+    const tPay = Date.now();
+    await this.payInvoice(c.invoiceId);
+    const payMs = Date.now() - tPay;
+    onEvent({ stage: 'paid', invoiceId: c.invoiceId, amountSat: c.amountSat, payMs });
+    const ans = await this.redeem(c.invoiceId, c.sellerPub, question, sellerUrl);
+    const totalMs = Date.now() - t0;
+    onEvent({
+      stage: 'answer', answer: ans.answer, model: ans.model,
+      receiptVerified: ans.receiptVerified, receipt: ans.receipt, totalMs,
+    });
+    return { ...ans, invoiceId: c.invoiceId, amountSat: c.amountSat, payMs, totalMs };
+  }
+
+  /** A second hosted channel (the race payee), persisted separately. */
+  private payeeChannel: LnChannelState | null = null;
+
+  async ensurePayeeChannel(address: string, pubkeyHex: string, capacityShors: number): Promise<string> {
+    if (this.payeeChannel) return this.payeeChannel.channelId;
+    const file = join(this.config.dataDir, 'ln-race-payee.json');
+    try {
+      const saved: LnChannelState = JSON.parse(await fs.readFile(file, 'utf8'));
+      const ch = await this.lsp('GET', `/v1/channels/${saved.channelId}`);
+      if (ch && ch.state === 'open') {
+        this.payeeChannel = saved;
+        return saved.channelId;
+      }
+    } catch { /* open fresh below */ }
+    const r = await this.lsp('POST', '/v1/channels', {
+      initiator_pub_key_hex: pubkeyHex,
+      capacity_sat: capacityShors,
+      initiator_name: 'btcsoq-race-payee',
+      csv_delay: 288,
+      initiator_address: address,
+    });
+    if (!r.accepted || !r.channel_id) {
+      throw new Error(`race payee channel open rejected: ${r.reject_reason ?? 'unknown'}`);
+    }
+    this.payeeChannel = { channelId: r.channel_id, address, createdAt: Date.now() };
+    await fs.writeFile(file, JSON.stringify(this.payeeChannel, null, 2), 'utf8');
+    logger.info(`[BTCSOQ:ln402] race payee channel open: ${r.channel_id}`);
+    return r.channel_id;
+  }
+
+  /** Create a pending invoice on a channel (the race payee's side). */
+  async createInvoice(channelId: string, amountSat: number, memo: string): Promise<string> {
+    const r = await this.lsp('POST', '/v1/invoices', {
+      channel_id: channelId, amount_sat: amountSat, memo, expiry_seconds: 300,
+    });
+    if (!r.invoice_id) throw new Error('LSP returned no invoice_id');
+    return r.invoice_id;
+  }
+
+  /** Payer-channel view for the race's local state tracking. */
+  async channelView(channelId: string): Promise<{ stateIndex: number; initiatorBal: number; peerBal: number }> {
+    const ch = await this.lsp('GET', `/v1/channels/${channelId}`);
+    if (ch.state !== 'open') throw new Error(`channel not open (state=${ch.state})`);
+    return { stateIndex: ch.state_index, initiatorBal: ch.initiator_balance_sat, peerBal: ch.peer_balance_sat };
+  }
+
+  /**
+   * Race-lane invoice pay: ONE request. The caller is the only writer on
+   * the channel during a race, so it maintains the state view locally
+   * instead of re-reading invoice + channel before every pay (which trips
+   * the LSP front's per-IP rate limit at race speed). On a reject the
+   * caller re-reads and retries once — the LSP stays the source of truth.
+   */
+  async payInvoiceFast(
+    invoiceId: string,
+    channelId: string,
+    view: { stateIndex: number; initiatorBal: number; peerBal: number },
+    amountSat: number,
+  ): Promise<void> {
+    const r = await this.lsp('POST', `/v1/invoices/${invoiceId}/pay`, {
+      channel_id: channelId,
+      state_index: view.stateIndex + 1,
+      initiator_balance_sat: view.initiatorBal - amountSat,
+      peer_balance_sat: view.peerBal + amountSat,
+      update_tx_hex: 'placeholder',
+      settlement_tx_hex: 'placeholder',
+      ctv_hash: 'placeholder',
+    });
+    if (!r.accepted) throw new Error(`invoice pay rejected: ${r.reject_reason ?? 'unknown'}`);
+    view.stateIndex += 1;
+    view.initiatorBal -= amountSat;
+    view.peerBal += amountSat;
   }
 
   /** Seller receipt check (canonicalization pinned to soq402/receipt.ts). */
@@ -246,18 +350,18 @@ export class Ln402Client {
     }
   }
 
-  private async seller(invoiceId: string | undefined): Promise<{ status: number; body: any }> {
+  private async seller(invoiceId: string | undefined, question: string, sellerUrl?: string): Promise<{ status: number; body: any }> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 120_000);   // inference can be slow
     try {
-      const resp = await fetch(`${this.config.sellerUrl}/v1/chat/completions`, {
+      const resp = await fetch(`${sellerUrl ?? this.config.sellerUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(invoiceId ? { 'X-SOQ-Invoice': invoiceId } : {}),
         },
         signal: ctrl.signal,
-        body: this.chatBody(),
+        body: this.chatBody(question),
       });
       const text = await resp.text();
       let body: any = {};

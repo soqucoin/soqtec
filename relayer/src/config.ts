@@ -110,6 +110,8 @@ export interface BtcsoqSettings {
   ln402Question: string;
   ln402ChannelShors: number;
   ln402ChannelAddress: string;
+  ln402Seller2Url: string;
+  racePayeeAddress: string;
 }
 
 export function loadConfig(): RelayerConfig {
@@ -240,5 +242,8 @@ function loadBtcsoqSettings(): BtcsoqSettings {
     // unless split out explicitly.
     ln402ChannelAddress: process.env.BTCSOQ_LN402_CHANNEL_ADDRESS ||
       process.env.BTCSOQ_CONVERT_USDSOQ_ADDRESS || '',
+    // Theater acts: second agent + race payee identity (both set = acts on)
+    ln402Seller2Url: process.env.BTCSOQ_LN402_SELLER2_URL || '',
+    racePayeeAddress: process.env.BTCSOQ_RACE_PAYEE_ADDRESS || '',
   };
 }

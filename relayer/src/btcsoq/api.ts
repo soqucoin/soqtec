@@ -12,6 +12,7 @@
 
 import type express from 'express';
 import { BtcsoqGateway, GatewayInputError } from './gateway';
+import { mountTheaterRoutes } from './theater';
 import { logger } from '../utils/logger';
 
 // Light abuse guard for intent creation (conference audience, public URL)
@@ -221,6 +222,8 @@ export function mountBtcsoqRoutes(app: express.Application, gateway: BtcsoqGatew
       res.status(500).json({ ok: false });
     }
   });
+
+  mountTheaterRoutes(app, gateway.theaterDeps());
 
   logger.info('[BTCSOQ:API] Routes mounted: /api/btc/{intent,redeem-intent,status/:id,gateway,deposits,block-notify}');
 }

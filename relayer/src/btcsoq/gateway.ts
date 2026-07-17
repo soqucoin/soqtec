@@ -86,6 +86,11 @@ export interface BtcsoqConfig extends BitcoinCEAConfig {
   ln402ChannelShors: number;
   /** Gateway signer address whose key identifies the payer channel */
   ln402ChannelAddress: string;
+  // ── Theater (the payoff acts) ──
+  /** Second SOQ-402 agent (Bit, :4021) — empty disables the duel + theater */
+  ln402Seller2Url: string;
+  /** Race payee channel identity (a gateway signer key, distinct from payer) */
+  racePayeeAddress: string;
 }
 
 /** How often stuck 'minting'/'redeeming' records are re-driven. */
@@ -710,6 +715,20 @@ export class BtcsoqGateway {
     } finally {
       this.convertingInFlight.delete(rec.key);
     }
+  }
+
+  /** Everything the theater acts need — they ride the leg's own client. */
+  theaterDeps(): import('./theater').TheaterDeps {
+    return {
+      enabled: this.ln402Enabled() && !!this.config.ln402Seller2Url && !!this.config.racePayeeAddress,
+      ln: () => this.getLn402Client(),
+      adaUrl: this.config.ln402SellerUrl,
+      bitUrl: this.config.ln402Seller2Url,
+      payee: async () => ({
+        address: this.config.racePayeeAddress,
+        pubkeyHex: await this.signer.pubkey(this.config.racePayeeAddress),
+      }),
+    };
   }
 
   // ── Lightning + SOQ-402 leg (WS3 — the finale) ─────────
