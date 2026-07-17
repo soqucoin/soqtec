@@ -114,6 +114,9 @@ export interface BtcsoqSettings {
   racePayeeAddress: string;
   anchorEnabled: boolean;
   anchorIntervalMin: number;
+  beatSsqAddress: string;
+  beatSats: number;
+  beatDailyCap: number;
 }
 
 export function loadConfig(): RelayerConfig {
@@ -251,5 +254,11 @@ function loadBtcsoqSettings(): BtcsoqSettings {
     // chain, hourly by default, only when the ledger changed.
     anchorEnabled: process.env.BTCSOQ_ANCHOR_ENABLED === 'true',
     anchorIntervalMin: parseInt(process.env.BTCSOQ_ANCHOR_INTERVAL_MIN || '60'),
+    // Miner beat (wr8): a public button fires a real payout-shaped send
+    // from the release float across the boundary. Setting the ssq address
+    // is the enable switch.
+    beatSsqAddress: process.env.BTCSOQ_BEAT_SSQ_ADDRESS || '',
+    beatSats: parseInt(process.env.BTCSOQ_BEAT_SATS || '10000'),
+    beatDailyCap: parseInt(process.env.BTCSOQ_BEAT_DAILY_CAP || '2'),
   };
 }

@@ -96,6 +96,13 @@ export interface BtcsoqConfig extends BitcoinCEAConfig {
   anchorEnabled: boolean;
   /** Minutes between anchor checks (a tx is only sent when the ledger changed) */
   anchorIntervalMin: number;
+  // ── Miner beat (wr8) ──
+  /** Demo ssq recipient for button-fired payouts — empty disables the beat */
+  beatSsqAddress: string;
+  /** Sats per beat (must clear minDepositSats) */
+  beatSats: number;
+  /** Public presses per UTC day */
+  beatDailyCap: number;
 }
 
 /** How often stuck 'minting'/'redeeming' records are re-driven. */
@@ -771,7 +778,44 @@ export class BtcsoqGateway {
       },
       recentAttestations: (limit: number) => this.store.listAttestations().slice(0, limit)
         .map((a) => ({ id: a.id, kind: a.kind, ts: a.ts, payload: a.payload })),
+      minerBeat: this.config.beatSsqAddress ? {
+        sats: this.config.beatSats,
+        cap: this.config.beatDailyCap,
+        send: () => this.fireMinerBeat(),
+      } : undefined,
     };
+  }
+
+  /**
+   * Miner beat (wr8): one real payout-shaped send from the release float
+   * to a fresh boundary address. The crossing then runs the whole line by
+   * itself — the same machinery as any pool payout.
+   */
+  private async fireMinerBeat(): Promise<{ txid: string; depositAddress: string; intentId: string; sats: number }> {
+    const sats = this.config.beatSats;
+    if (sats < this.config.minDepositSats) {
+      throw new Error(`beat misconfigured: ${sats} sats < ${this.config.minDepositSats} minimum deposit`);
+    }
+    // Same guards as releases: breaker state and float protection. Refuse
+    // to beat the float below a survival floor (beats are theater; releases
+    // are obligations).
+    const deferral = this.releaseBreakerReason(sats);
+    if (deferral) throw new Error(`beat deferred: ${deferral}`);
+    const bal = await this.releaseRpc.call('getbalances', []);
+    const floatSats = Math.round(Number(bal?.mine?.trusted ?? 0) * 1e8);
+    const floorSats = 3 * sats + 20_000;
+    if (floatSats < floorSats) {
+      throw new Error(`beat deferred: release float ${floatSats} sats under the ${floorSats} floor`);
+    }
+    const intent = await this.createDepositIntent(this.config.beatSsqAddress);
+    const depositAddress = intent.btcDepositAddress;
+    if (!depositAddress) throw new Error('beat intent carries no deposit address');
+    // Fee on top (not subtracted): the deposit must arrive >= minDepositSats.
+    const txid: string = await this.releaseRpc.call('sendtoaddress', [
+      depositAddress, sats / 1e8, `beat:${intent.id}`, '', false,
+    ]);
+    logger.info(`[BTCSOQ] MINER BEAT: ${sats} sats → ${depositAddress} (tx ${txid.slice(0, 16)}..., intent ${intent.id.slice(0, 8)})`);
+    return { txid, depositAddress, intentId: intent.id, sats };
   }
 
   // ── Lightning + SOQ-402 leg (WS3 — the finale) ─────────

@@ -38,6 +38,12 @@ export interface TheaterDeps {
   btcContext: () => Promise<Record<string, unknown>>;
   /** Recent gateway attestation events — Bitcoin's own lines on the tape */
   recentAttestations: (limit: number) => Array<{ id: string; kind: string; ts: number; payload: string }>;
+  /** Miner beat (wr8): fire one real payout-shaped send across the boundary */
+  minerBeat?: {
+    sats: number;
+    cap: number;
+    send: () => Promise<{ txid: string; depositAddress: string; intentId: string; sats: number }>;
+  };
 }
 
 /** Curated public questions (free-form is allowed but length-capped). */
@@ -315,8 +321,28 @@ async function checkAgent(name: string, url: string) {
 }
 
 export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps): void {
+  // The miner beat is a gateway action, not an AI act — mount it whenever
+  // it is configured, independent of the (heavier) AI theater stack.
+  if (deps.minerBeat) {
+    const beat = deps.minerBeat;
+    BUDGETS.beat = { cap: beat.cap, perMin: 1 };
+    app.post('/api/btc/theater/miner-beat', async (req, res) => {
+      if (!gate(req, res, 'beat')) return;
+      try {
+        const r = await beat.send();
+        tapePush(`miner beat · ${r.sats.toLocaleString('en-US')} sats en route to the boundary · tx ${r.txid.slice(0, 12)}…`, 'btc');
+        tapePush(`the slow part now is Bitcoin itself: one confirmation, then the line fires on its own`, 'note');
+        res.json({ ok: true, txid: r.txid, depositAddress: r.depositAddress, intentId: r.intentId, sats: r.sats });
+      } catch (err: any) {
+        logger.warn(`[BTCSOQ:theater] miner beat refused: ${err.message}`);
+        res.status(503).json({ ok: false, error: 'The beat is resting (float protection or breaker). The scheduled demonstration keeps running.' });
+      }
+    });
+    logger.info(`[BTCSOQ:theater] Miner beat armed: ${beat.sats} sats/press, ${beat.cap}/day public`);
+  }
+
   if (!deps.enabled) {
-    logger.info('[BTCSOQ:theater] disabled (theater config not set)');
+    logger.info('[BTCSOQ:theater] AI acts disabled (theater config not set); miner beat mounts independently');
     return;
   }
 
@@ -333,6 +359,25 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
   // Bitcoin's own events on the tape: seed with recent history, then follow.
   pollGatewayEvents(deps, true);
   setInterval(() => pollGatewayEvents(deps, false), 20_000);
+
+  // ── POST /api/btc/theater/miner-beat — one real payout, on demand ──
+  if (deps.minerBeat) {
+    const beat = deps.minerBeat;
+    BUDGETS.beat = { cap: beat.cap, perMin: 1 };
+    app.post('/api/btc/theater/miner-beat', async (req, res) => {
+      if (!gate(req, res, 'beat')) return;
+      try {
+        const r = await beat.send();
+        tapePush(`miner beat · ${r.sats.toLocaleString('en-US')} sats en route to the boundary · tx ${r.txid.slice(0, 12)}…`, 'btc');
+        tapePush(`the slow part now is Bitcoin itself: one confirmation, then the line fires on its own`, 'note');
+        res.json({ ok: true, txid: r.txid, depositAddress: r.depositAddress, intentId: r.intentId, sats: r.sats });
+      } catch (err: any) {
+        logger.warn(`[BTCSOQ:theater] miner beat refused: ${err.message}`);
+        res.status(503).json({ ok: false, error: 'The beat is resting (float protection or breaker). The scheduled demonstration keeps running.' });
+      }
+    });
+    logger.info(`[BTCSOQ:theater] Miner beat armed: ${beat.sats} sats/press, ${beat.cap}/day public`);
+  }
 
   // ── GET /api/btc/theater/stream — the shared broadcast ──
   app.get('/api/btc/theater/stream', (req, res) => {
