@@ -25,7 +25,7 @@ import { ProdConvertClient } from './convert-client';
 import { Ln402Client } from './ln402';
 import { SoqScanner } from './soq-scan';
 import { BitcoinRpc } from './rpc';
-import { encodeTag } from './receipt';
+import { encodeTag, payoutCommit, BtcsoqTag } from './receipt';
 import { AttestedEventKind, AttestationRecord, buildPayload, sha256Hex } from './attestation';
 import { logger } from '../utils/logger';
 
@@ -469,19 +469,26 @@ export class BtcsoqGateway {
       return existing.mintTxid ?? null;
     }
 
+    // Deposit-level eligibility (bead xk3): a mint is gated on THIS deposit
+    // outpoint, never on the intent's status. Two consequences that matter:
+    // one dust deposit can't brick a fortress address, and every payout to a
+    // reused address mints on its own outpoint (payout #2, #3, … all cross).
+    if (dep.confidence === 'mempool') return null;
+
     const intent = dep.intentId ? this.store.getIntent(dep.intentId) : undefined;
     if (!intent || intent.kind !== 'deposit') {
       // Unsolicited deposits are held, never minted (no ssq binding exists).
       return null;
     }
-    if (intent.status !== 'confirmed') return null;
 
     if (dep.sats < this.config.minDepositSats) {
-      intent.status = 'failed';
-      intent.failReason = `underpay: ${dep.sats} sats < ${this.config.minDepositSats} minimum`;
-      intent.updatedAt = Date.now();
-      await this.store.putIntent(intent);
-      logger.warn(`[BTCSOQ] Intent ${intent.id.slice(0, 8)} → failed (${intent.failReason}) — deposit held, no mint`);
+      // Skip THIS outpoint, never the shared intent — a fortress address is
+      // reused, so failing the intent would strand every later real payout.
+      if (dep.heldReason !== 'underpay') {
+        dep.heldReason = 'underpay';
+        await this.store.putDeposit(dep);
+        logger.warn(`[BTCSOQ] Deposit ${key.slice(0, 20)}... held: ${dep.sats} sats < ${this.config.minDepositSats} minimum (intent unaffected)`);
+      }
       return null;
     }
 
@@ -490,15 +497,15 @@ export class BtcsoqGateway {
     // intents from Day 1 can carry shape-valid-but-fake addresses).
     try {
       if (!(await this.scanner.validateAddress(intent.ssqAddress))) {
-        intent.status = 'failed';
-        intent.failReason = 'recipient ssq address failed checksum validation';
-        intent.updatedAt = Date.now();
-        await this.store.putIntent(intent);
-        logger.warn(`[BTCSOQ] Intent ${intent.id.slice(0, 8)} → failed (invalid recipient ${intent.ssqAddress.slice(0, 24)}...) — deposit held, no mint`);
+        if (dep.heldReason !== 'bad-recipient') {
+          dep.heldReason = 'bad-recipient';
+          await this.store.putDeposit(dep);
+          logger.warn(`[BTCSOQ] Deposit ${key.slice(0, 20)}... held: recipient ${intent.ssqAddress.slice(0, 24)}... failed checksum (intent unaffected)`);
+        }
         return null;
       }
     } catch (err: any) {
-      // Node unreachable — don't claim, don't fail; the next tick retries.
+      // Node unreachable — don't claim, don't hold; the next tick retries.
       logger.warn(`[BTCSOQ] validateaddress unavailable at mint time (${err.message}) — deferring mint for ${key.slice(0, 20)}...`);
       return null;
     }
@@ -525,7 +532,12 @@ export class BtcsoqGateway {
       return this.store.getMint(key)?.mintTxid ?? null;
     }
 
+    // Reflect the outpoint being minted on the intent (display only — a
+    // reused fortress address points its status at the latest payout).
     intent.status = 'minting';
+    intent.depositTxid = dep.txid;
+    intent.depositVout = dep.vout;
+    intent.sats = dep.sats;
     intent.updatedAt = Date.now();
     await this.store.putIntent(intent);
     logger.info(`[BTCSOQ] MINT claimed for ${key.slice(0, 20)}... (${dep.sats} sats → ${intent.ssqAddress.slice(0, 20)}...)`);
@@ -1083,11 +1095,14 @@ export class BtcsoqGateway {
     this.moneyLoopRunning = true;
     try {
       await this.checkPorInvariant();
-      // Deposits that confirmed but never got a mint claim
-      for (const intent of this.store.listIntents()) {
-        if (intent.kind === 'deposit' && intent.status === 'confirmed' &&
-            intent.depositTxid !== undefined && intent.depositVout !== undefined) {
-          await this.mintForDepositKey(`${intent.depositTxid}:${intent.depositVout}`);
+      // Confirmed, intent-bound deposits that haven't minted yet — covers a
+      // crash between detection and claim AND every later payout to a reused
+      // fortress address (bead xk3). Held (underpay/bad-recipient) and
+      // already-minted outpoints are skipped.
+      for (const dep of this.store.listDeposits()) {
+        if (dep.intentId && dep.confidence !== 'mempool' &&
+            !dep.heldReason && !this.store.getMint(dep.key)) {
+          await this.mintForDepositKey(dep.key);
         }
       }
       // Claimed mints that haven't landed
@@ -1194,7 +1209,7 @@ export class BtcsoqGateway {
       }
       for (const carrier of spend.spentCarriers) {
         const rec = this.store.findMintByCarrier(carrier);
-        if (rec) await this.onReceiptReturned(rec, spend.txid);
+        if (rec) await this.onReceiptReturned(rec, spend.txid, spend.tag);
       }
     }
 
@@ -1202,7 +1217,7 @@ export class BtcsoqGateway {
   }
 
   /** A minted receipt carrier was spent into the redemption address. */
-  private async onReceiptReturned(rec: MintRecord, receiptSpendTxid: string): Promise<void> {
+  private async onReceiptReturned(rec: MintRecord, receiptSpendTxid: string, tag: BtcsoqTag | null): Promise<void> {
     if (rec.status === 'redeeming' || rec.status === 'redeemed') {
       return;   // rescan/reorg replay — release already claimed or done
     }
@@ -1211,32 +1226,44 @@ export class BtcsoqGateway {
       return;
     }
 
-    // Bind to the oldest open redeem intent for this attendee address.
-    let redeemIntent = this.store.listIntents()
-      .filter((i) => i.kind === 'redeem' && i.status === 'awaiting-receipt' && i.ssqAddress === rec.ssqAddress)
-      .sort((a, b) => a.createdAt - b.createdAt)[0];
+    const candidates = this.store.listIntents()
+      .filter((i) => i.kind === 'redeem' && i.ssqAddress === rec.ssqAddress &&
+        (i.status === 'awaiting-receipt' || i.status === 'expired'));
 
-    if (!redeemIntent) {
-      // The registration may have aged out while the receipt sat in a
-      // wallet. The payout address was this owner's explicit instruction:
-      // revive their most recent expired registration instead of stranding
-      // the redemption. (Newest, not oldest — the latest instruction wins.)
-      const dormant = this.store.listIntents()
-        .filter((i) => i.kind === 'redeem' && i.status === 'expired' && i.ssqAddress === rec.ssqAddress)
-        .sort((a, b) => b.createdAt - a.createdAt)[0];
-      if (dormant) {
-        dormant.status = 'awaiting-receipt';
-        dormant.expiresAt = Date.now() + this.config.intentTtlHours * 3600_000;
-        dormant.updatedAt = Date.now();
-        await this.store.putIntent(dormant);
-        logger.info(`[BTCSOQ] Redeem intent ${dormant.id.slice(0, 8)} for ${rec.ssqAddress.slice(0, 20)}... — revived by returned receipt`);
-        redeemIntent = dormant;
+    let redeemIntent: BtcIntent | undefined;
+    if (tag?.op === 'redeem' && tag.payoutCommit) {
+      // Secure path (bead dit): the return spend commits to a payout address.
+      // Only whoever controls the receipt coin can produce this commitment, so
+      // a pre-registered attacker intent (different address → different commit)
+      // can never match. Front-running is structurally impossible here.
+      redeemIntent = candidates.find(
+        (i) => i.btcPayoutAddress && payoutCommit(i.btcPayoutAddress) === tag.payoutCommit);
+      if (!redeemIntent) {
+        logger.warn(`[BTCSOQ] Receipt ${rec.mintTxid?.slice(0, 16)}... committed to payout ${tag.payoutCommit.slice(0, 12)}… but no matching registration for ${rec.ssqAddress.slice(0, 20)}... — held (register that exact payout address, then it binds)`);
+        return;
+      }
+    } else {
+      // Legacy path: the return spend carries no payout commitment (a client
+      // predating bead dit). Binding is UNAUTHENTICATED — anyone could have
+      // registered this address. Kept only for backward compatibility; loudly
+      // flagged. Oldest-open, else revive newest-expired.
+      redeemIntent = candidates.filter((i) => i.status === 'awaiting-receipt')
+        .sort((a, b) => a.createdAt - b.createdAt)[0]
+        ?? candidates.filter((i) => i.status === 'expired')
+          .sort((a, b) => b.createdAt - a.createdAt)[0];
+      if (redeemIntent) {
+        logger.warn(`[BTCSOQ] Receipt ${rec.mintTxid?.slice(0, 16)}... returned WITHOUT a payout commitment — binding by legacy oldest-open rule (unauthenticated; update the client to commit the payout address)`);
       }
     }
 
     if (!redeemIntent) {
       logger.warn(`[BTCSOQ] Receipt ${rec.mintTxid?.slice(0, 16)}... returned (tx ${receiptSpendTxid.slice(0, 16)}...) but NO open redeem intent for ${rec.ssqAddress.slice(0, 20)}... — held for manual handling (no payout address)`);
       return;
+    }
+
+    if (redeemIntent.status === 'expired') {
+      redeemIntent.expiresAt = Date.now() + this.config.intentTtlHours * 3600_000;
+      logger.info(`[BTCSOQ] Redeem intent ${redeemIntent.id.slice(0, 8)} for ${rec.ssqAddress.slice(0, 20)}... — revived by returned receipt`);
     }
 
     // Release CAS: claim the record BEFORE the BTC wallet call.

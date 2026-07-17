@@ -18,11 +18,19 @@
  * blind re-send).
  */
 
+import { createHash } from 'crypto';
+
 export const BSQ_MAGIC = 'BSQ1';
 export const BSQ_OP_MINT = 0x4d;     // 'M'
 export const BSQ_OP_REDEEM = 0x52;   // 'R'
 export const BSQ_OP_CONVERT = 0x43;  // 'C'
 export const BSQ_TAG_LEN = 49;
+/** Redeem tag with a 20-byte payout commitment appended (bead dit): the
+ *  return spend itself authorizes the BTC payout, so receipt control — not a
+ *  separate unauthenticated registration — decides where the Bitcoin goes.
+ *  49 + 20 = 69 bytes, still a direct push under the 80-byte OP_RETURN ceiling. */
+export const BSQ_PAYOUT_COMMIT_LEN = 20;
+export const BSQ_TAG_LEN_REDEEM_BOUND = BSQ_TAG_LEN + BSQ_PAYOUT_COMMIT_LEN;
 
 export type BtcsoqTagOp = 'mint' | 'redeem' | 'convert';
 
@@ -31,6 +39,16 @@ export interface BtcsoqTag {
   sats: bigint;
   btcTxid: string;
   vout: number;
+  /** Redeem tags only: sha256(payoutAddress lowercased)[:20], hex. */
+  payoutCommit?: string;
+}
+
+/** The canonical payout commitment: first 20 bytes of sha256(addr, lowercased). */
+export function payoutCommit(btcPayoutAddress: string): string {
+  return createHash('sha256')
+    .update(btcPayoutAddress.trim().toLowerCase(), 'utf8')
+    .digest('hex')
+    .slice(0, BSQ_PAYOUT_COMMIT_LEN * 2);
 }
 
 const OP_BYTE: Record<BtcsoqTagOp, number> = {
@@ -55,18 +73,31 @@ export function encodeTag(op: BtcsoqTagOp, sats: bigint, btcTxid: string, vout: 
   return buf;
 }
 
+/** Redeem tag with the payout commitment appended (bead dit). */
+export function encodeRedeemTag(sats: bigint, btcTxid: string, vout: number, btcPayoutAddress: string): Buffer {
+  const base = encodeTag('redeem', sats, btcTxid, vout);
+  const commit = Buffer.from(payoutCommit(btcPayoutAddress), 'hex');
+  return Buffer.concat([base, commit]);
+}
+
 export function decodeTag(buf: Buffer): BtcsoqTag | null {
-  if (buf.length !== BSQ_TAG_LEN) return null;
+  if (buf.length !== BSQ_TAG_LEN && buf.length !== BSQ_TAG_LEN_REDEEM_BOUND) return null;
   if (buf.toString('ascii', 0, 4) !== BSQ_MAGIC) return null;
   const opByte = buf.readUInt8(4);
   const op = (Object.entries(OP_BYTE).find(([, b]) => b === opByte) || [])[0] as BtcsoqTagOp | undefined;
   if (!op) return null;
-  return {
+  // The extended length is only meaningful for redeem tags.
+  if (buf.length === BSQ_TAG_LEN_REDEEM_BOUND && op !== 'redeem') return null;
+  const tag: BtcsoqTag = {
     op,
     sats: buf.readBigUInt64LE(5),
     btcTxid: buf.subarray(13, 45).toString('hex'),
     vout: buf.readUInt32LE(45),
   };
+  if (buf.length === BSQ_TAG_LEN_REDEEM_BOUND) {
+    tag.payoutCommit = buf.subarray(BSQ_TAG_LEN, BSQ_TAG_LEN_REDEEM_BOUND).toString('hex');
+  }
+  return tag;
 }
 
 /**
@@ -84,9 +115,10 @@ export function tagScriptHex(payload: Buffer): string {
 /** Parse a BSQ tag out of an OP_RETURN scriptPubKey hex, if present. */
 export function tagFromScriptHex(scriptHex: string): BtcsoqTag | null {
   if (!scriptHex || !scriptHex.startsWith('6a')) return null;
-  // Direct-push only (0x31 = 49); BSQ tags never need PUSHDATA1.
+  // Direct-push only (0x31 = 49, or 0x45 = 69 for a payout-bound redeem tag);
+  // BSQ tags never need PUSHDATA1.
   const lenByte = parseInt(scriptHex.slice(2, 4), 16);
-  if (lenByte !== BSQ_TAG_LEN) return null;
+  if (lenByte !== BSQ_TAG_LEN && lenByte !== BSQ_TAG_LEN_REDEEM_BOUND) return null;
   const payload = Buffer.from(scriptHex.slice(4), 'hex');
   return decodeTag(payload);
 }

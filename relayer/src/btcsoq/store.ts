@@ -189,6 +189,9 @@ export interface DepositRecord {
   blockHash?: string;
   blockHeight?: number;
   spvProof?: string;
+  /** Set when this outpoint is skipped for good (underpay / bad-recipient),
+   *  so the mint sweep never re-examines it. Never fails the shared intent. */
+  heldReason?: 'underpay' | 'bad-recipient';
 }
 
 /**
