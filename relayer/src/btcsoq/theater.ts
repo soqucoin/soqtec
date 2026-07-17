@@ -12,7 +12,7 @@
  *                    counter updates, next-demonstration clock
  *   GET /status      session stats, program budgets, agent cards, clocks
  *   GET /ask?q=      program 01 — pay-per-answer (per-visitor SSE)
- *   GET /duel?...    program 02 — M2M negotiation, Ada × Bit
+ *   GET /duel?...    program 02 — M2M negotiation, Grok × Claude
  *   GET /race?laps=  program 03 — throughput vs the Bitcoin clock
  *
  * Gating is VISIBLE by design: every 429 carries retryAfterSec, /status
@@ -30,8 +30,8 @@ import { logger } from '../utils/logger';
 export interface TheaterDeps {
   enabled: boolean;
   ln: () => Promise<Ln402Client>;
-  adaUrl: string;
-  bitUrl: string;
+  grokUrl: string;
+  claudeUrl: string;
   /** Race payee channel identity (a gateway signer key) */
   payee: () => Promise<{ address: string; pubkeyHex: string }>;
 }
@@ -111,7 +111,7 @@ const session = {
   settleMsTotal: 0,
   settleMsCount: 0,
 };
-const agentEarned: Record<string, number> = { Ada: 0, Bit: 0 };
+const agentEarned: Record<string, number> = { Grok: 0, Claude: 0 };
 
 interface TapeEntry { ts: number; line: string; cls: string }
 const tape: TapeEntry[] = [];
@@ -246,11 +246,11 @@ async function runHeartbeat(deps: TheaterDeps) {
       const question = ASK_PRESETS[presetId];
       broadcast({ kind: 'demo', stage: 'start', program: 'ask', question });
       tapePush('scheduled demonstration · a machine gets paid to think', 'status');
-      const r = await ln.performPaidAsk(question, deps.adaUrl, (e) => {
+      const r = await ln.performPaidAsk(question, deps.grokUrl, (e) => {
         broadcast({ kind: 'demo', program: 'ask', ...e });
         tapeAsk('scheduled', e);
       });
-      recordSettle(r.amountSat, r.payMs, 'Ada', r.receiptVerified);
+      recordSettle(r.amountSat, r.payMs, 'Grok', r.receiptVerified);
       broadcast({ kind: 'demo', stage: 'done', program: 'ask' });
     }
   } catch (err: any) {
@@ -287,9 +287,9 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
       runHeartbeat(deps).catch(() => { /* logged inside */ });
     }
   }, 1000);
-  setInterval(() => { checkAgent('Ada', deps.adaUrl); checkAgent('Bit', deps.bitUrl); }, 60_000);
-  checkAgent('Ada', deps.adaUrl);
-  checkAgent('Bit', deps.bitUrl);
+  setInterval(() => { checkAgent('Grok', deps.grokUrl); checkAgent('Claude', deps.claudeUrl); }, 60_000);
+  checkAgent('Grok', deps.grokUrl);
+  checkAgent('Claude', deps.claudeUrl);
 
   // ── GET /api/btc/theater/stream — the shared broadcast ──
   app.get('/api/btc/theater/stream', (req, res) => {
@@ -310,8 +310,8 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
       budgets: Object.fromEntries(Object.entries(BUDGETS).map(([k, v]) =>
         [k, { used: budgetUsed(k), cap: v.cap }])),
       agents: [
-        { name: 'Ada', ...agentHealth['Ada'], priceShors: 333, earnedSession: agentEarned.Ada },
-        { name: 'Bit', ...agentHealth['Bit'], priceShors: 333, earnedSession: agentEarned.Bit },
+        { name: 'Grok', ...agentHealth['Grok'], priceShors: 333, earnedSession: agentEarned.Grok },
+        { name: 'Claude', ...agentHealth['Claude'], priceShors: 333, earnedSession: agentEarned.Claude },
       ],
       settlement: 'hosted L2SOQ channels (custodial, disclosed)',
     });
@@ -328,11 +328,11 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
     try {
       const ln = await deps.ln();
       session.acts += 1;
-      const r = await ln.performPaidAsk(question, deps.adaUrl, (e) => {
+      const r = await ln.performPaidAsk(question, deps.grokUrl, (e) => {
         send(e);
         tapeAsk('visitor', e);
       });
-      recordSettle(r.amountSat, r.payMs, 'Ada', r.receiptVerified);
+      recordSettle(r.amountSat, r.payMs, 'Grok', r.receiptVerified);
       send({ stage: 'done' });
     } catch (err: any) {
       logger.warn(`[BTCSOQ:theater] ask failed: ${err.message}`);
@@ -343,7 +343,7 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
     }
   });
 
-  // ── Program 02: M2M negotiation (Ada × Bit) ───────────
+  // ── Program 02: M2M negotiation (Grok × Claude) ───────
   app.get('/api/btc/theater/duel', async (req, res) => {
     if (!gate(req, res, 'duel')) return;
     const opener = resolveQuestion(req.query.opener ?? 'price', DUEL_PRESETS);
@@ -357,10 +357,10 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
       const ln = await deps.ln();
       session.acts += 1;
       const agents = [
-        { name: 'Ada', url: deps.adaUrl },
-        { name: 'Bit', url: deps.bitUrl },
+        { name: 'Grok', url: deps.grokUrl },
+        { name: 'Claude', url: deps.claudeUrl },
       ];
-      const earned: Record<string, number> = { Ada: 0, Bit: 0 };
+      const earned: Record<string, number> = { Grok: 0, Claude: 0 };
       let prompt = opener;
       let prevAnswer = '';
       for (let i = 0; i < turns; i++) {
@@ -380,7 +380,7 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
         send({ stage: 'earnings', earned: { ...earned } });
       }
       send({ stage: 'done', earned });
-      tapePush(`M2M negotiation closed · ${earned.Ada + earned.Bit} shors moved machine to machine`, 'status');
+      tapePush(`M2M negotiation closed · ${earned.Grok + earned.Claude} shors moved machine to machine`, 'status');
     } catch (err: any) {
       logger.warn(`[BTCSOQ:theater] duel failed: ${err.message}`);
       send({ stage: 'error', message: 'The rail hiccuped. Try again.' });

@@ -722,8 +722,8 @@ export class BtcsoqGateway {
     return {
       enabled: this.ln402Enabled() && !!this.config.ln402Seller2Url && !!this.config.racePayeeAddress,
       ln: () => this.getLn402Client(),
-      adaUrl: this.config.ln402SellerUrl,
-      bitUrl: this.config.ln402Seller2Url,
+      grokUrl: this.config.ln402SellerUrl,
+      claudeUrl: this.config.ln402Seller2Url,
       payee: async () => ({
         address: this.config.racePayeeAddress,
         pubkeyHex: await this.signer.pubkey(this.config.racePayeeAddress),
