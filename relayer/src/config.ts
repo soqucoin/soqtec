@@ -112,6 +112,8 @@ export interface BtcsoqSettings {
   ln402ChannelAddress: string;
   ln402Seller2Url: string;
   racePayeeAddress: string;
+  anchorEnabled: boolean;
+  anchorIntervalMin: number;
 }
 
 export function loadConfig(): RelayerConfig {
@@ -245,5 +247,9 @@ function loadBtcsoqSettings(): BtcsoqSettings {
     // Theater acts: second agent + race payee identity (both set = acts on)
     ln402Seller2Url: process.env.BTCSOQ_LN402_SELLER2_URL || '',
     racePayeeAddress: process.env.BTCSOQ_RACE_PAYEE_ADDRESS || '',
+    // Bitcoin anchoring (WS4): the ledger root notarized into the parent
+    // chain, hourly by default, only when the ledger changed.
+    anchorEnabled: process.env.BTCSOQ_ANCHOR_ENABLED === 'true',
+    anchorIntervalMin: parseInt(process.env.BTCSOQ_ANCHOR_INTERVAL_MIN || '60'),
   };
 }

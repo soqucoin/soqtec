@@ -207,6 +207,21 @@ export function mountBtcsoqRoutes(app: express.Application, gateway: BtcsoqGatew
     }
   });
 
+  // ── POST /api/btc/anchor — on-demand notarization ────
+  // Localhost only (T-60 pre-flight): anchor the current ledger root into
+  // Bitcoin right now, even if unchanged (force=1).
+  app.post('/api/btc/anchor', async (req, res) => {
+    if (!isLocalhost(req)) {
+      return res.status(403).json({ ok: false });
+    }
+    try {
+      const result = await gateway.anchorNow(req.query.force === '1');
+      res.json({ ok: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // ── POST /api/btc/block-notify (bitcoind push channel) ─
   app.post('/api/btc/block-notify', async (req, res) => {
     if (!isLocalhost(req)) {

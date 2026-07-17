@@ -80,6 +80,26 @@ curl -s https://soqtec-relay.soqu.org/api/btc/gateway | jq '.gateway | {healthy,
 - [ ] testnet4 block cadence sanity: if the chain has been stuck for hours,
       lead with the recorded loop and let live deposits confirm in the background.
 
+## The miner beat (WS6) and the Bitcoin anchor (WS4)
+
+**Miner beat, the line for the room:** "You already own the hardware. Point
+your pool payouts at a boundary address and every payout crosses on arrival:
+quantum-safe receipt, automatic, provable, and the coins go home whenever you
+say." Live once per show: create a deposit intent, send a payout-sized
+testnet4 amount to it from the release wallet, and let the room watch the
+crossing fire the whole line on its own (mint → USDSOQ → paid AI answer, all
+attested, all on the terminal tape). Proven 7/17: payout e4fdfae2… →
+intent ac8635a4.
+
+**Bitcoin anchor, the line for the room:** "The fortress's books are
+notarized by Bitcoin itself." The ledger's merkle root goes into a testnet4
+OP_RETURN hourly whenever the ledger changed (BSQA payload; recipe in the
+gateway API). Pre-demo T-60: force a fresh anchor so the page shows a
+minutes-old notarization:
+`curl -s -X POST "http://127.0.0.1:3006/api/btc/anchor?force=1"` (localhost).
+First anchor 7/17: tx 016b17638dba… root 5e7d3233… (6 events), byte-verified
+on mempool.space.
+
 ## Run of show (attendee path)
 
 1. Attendee opens the page, reads the four-step strip.

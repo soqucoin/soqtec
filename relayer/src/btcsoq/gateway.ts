@@ -15,7 +15,7 @@
  * DL-BTC-SOQTEC-GATEWAY-2026-07-16.md §5 — epic bead soqucoin-build-6hp.
  */
 
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { existsSync } from 'fs';
 import { BitcoinCEA, BitcoinCEAConfig } from '../cea/bitcoin-cea';
 import { NormalizedBurnEvent, BurnConfidence } from '../cea/types';
@@ -91,6 +91,11 @@ export interface BtcsoqConfig extends BitcoinCEAConfig {
   ln402Seller2Url: string;
   /** Race payee channel identity (a gateway signer key, distinct from payer) */
   racePayeeAddress: string;
+  // ── Bitcoin anchoring (WS4) ──
+  /** Write the ledger's merkle root into a Bitcoin OP_RETURN on a schedule */
+  anchorEnabled: boolean;
+  /** Minutes between anchor checks (a tx is only sent when the ledger changed) */
+  anchorIntervalMin: number;
 }
 
 /** How often stuck 'minting'/'redeeming' records are re-driven. */
@@ -232,6 +237,13 @@ export class BtcsoqGateway {
       logger.warn('[BTCSOQ] Money loop DISABLED (mint signer/addresses not configured) — detection-only mode');
     }
 
+    if (this.config.anchorEnabled) {
+      this.anchorTimer = setInterval(() => {
+        this.anchorNow().catch((err) => logger.warn(`[BTCSOQ] anchor tick failed: ${err.message}`));
+      }, this.config.anchorIntervalMin * 60_000);
+      logger.info(`[BTCSOQ] Bitcoin anchoring armed: every ${this.config.anchorIntervalMin} min when the ledger changes`);
+    }
+
     this.startedAt = Date.now();
     logger.info(`[BTCSOQ] Gateway started (${this.config.network}, poll ${this.config.pollIntervalMs}ms, finality ${this.config.finalityConf} conf)`);
   }
@@ -244,6 +256,10 @@ export class BtcsoqGateway {
     if (this.moneyTimer) {
       clearInterval(this.moneyTimer);
       this.moneyTimer = null;
+    }
+    if (this.anchorTimer) {
+      clearInterval(this.anchorTimer);
+      this.anchorTimer = null;
     }
     await this.cea.stop();
     logger.info('[BTCSOQ] Gateway stopped');
@@ -745,6 +761,7 @@ export class BtcsoqGateway {
           covered: s.vault ? Number(s.vault.confirmedSats) >= s.receipts.outstandingSats : null,
           confPolicy: s.confPolicy.required,
           depositWaitSec: waited.length ? Math.round(waited.reduce((a, b) => a + b, 0) / waited.length) : null,
+          anchor: s.anchor?.last ?? null,
         };
       },
       recentAttestations: (limit: number) => this.store.listAttestations().slice(0, limit)
@@ -1256,6 +1273,99 @@ export class BtcsoqGateway {
     }
   }
 
+  // ── Bitcoin anchoring (WS4): the books, notarized by the parent chain ──
+
+  private anchorTimer: ReturnType<typeof setInterval> | null = null;
+  private anchoring = false;
+
+  /**
+   * Merkle root over the attestation ledger. Recipe (also published in the
+   * API): leaves are the 32-byte sha256 digests of every attestation
+   * payload, sorted by attestation id; parents are sha256(left || right);
+   * an odd node is paired with itself. Anyone holding the public feed can
+   * recompute this root and compare it with the bytes Bitcoin notarized.
+   */
+  computeLedgerRoot(): { root: string; leafCount: number } {
+    const leaves = this.store.listAttestations()
+      .slice()
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .map((a) => Buffer.from(a.digestHex, 'hex'));
+    if (leaves.length === 0) return { root: '', leafCount: 0 };
+    let level: Buffer[] = leaves;
+    while (level.length > 1) {
+      const next: Buffer[] = [];
+      for (let i = 0; i < level.length; i += 2) {
+        const left = level[i];
+        const right = level[i + 1] ?? level[i];
+        next.push(createHash('sha256').update(Buffer.concat([left, right])).digest());
+      }
+      level = next;
+    }
+    return { root: level[0].toString('hex'), leafCount: leaves.length };
+  }
+
+  /**
+   * Anchor the current ledger root into a testnet4 OP_RETURN from the
+   * release wallet. Skips when nothing changed since the last anchor
+   * (no empty notarizations). Payload: "BSQA" + 0x01 + root(32) +
+   * leafCount(u32 LE) = 41 bytes.
+   */
+  async anchorNow(force = false): Promise<{ anchored: boolean; reason?: string; txid?: string; root?: string }> {
+    if (this.anchoring) return { anchored: false, reason: 'anchor already in flight' };
+    const { root, leafCount } = this.computeLedgerRoot();
+    if (!root) return { anchored: false, reason: 'ledger is empty' };
+    const last = this.store.lastAnchor();
+    if (!force && last && last.root === root) {
+      return { anchored: false, reason: 'ledger unchanged since last anchor', root };
+    }
+    this.anchoring = true;
+    try {
+      const payload = Buffer.alloc(41);
+      payload.write('BSQA', 0, 'ascii');
+      payload.writeUInt8(0x01, 4);
+      Buffer.from(root, 'hex').copy(payload, 5);
+      payload.writeUInt32LE(leafCount, 37);
+
+      const raw: string = await this.releaseRpc.call('createrawtransaction', [
+        [], [{ data: payload.toString('hex') }],
+      ]);
+      const funded: any = await this.releaseRpc.call('fundrawtransaction', [raw]);
+      const signed: any = await this.releaseRpc.call('signrawtransactionwithwallet', [funded.hex]);
+      if (!signed.complete) throw new Error('anchor tx signing incomplete');
+      const txid: string = await this.releaseRpc.call('sendrawtransaction', [signed.hex]);
+
+      await this.store.putAnchor({ ts: Date.now(), root, leafCount, txid });
+      logger.info(`[BTCSOQ] ANCHORED the ledger into Bitcoin: root ${root.slice(0, 16)}... (${leafCount} events) tx ${txid.slice(0, 16)}...`);
+      return { anchored: true, txid, root };
+    } catch (err: any) {
+      logger.warn(`[BTCSOQ] anchor failed: ${err.message} — next interval retries`);
+      return { anchored: false, reason: err.message };
+    } finally {
+      this.anchoring = false;
+    }
+  }
+
+  /** Public anchor view for the APIs and the pages. */
+  anchorStatus(): any {
+    const last = this.store.lastAnchor();
+    const { root, leafCount } = this.computeLedgerRoot();
+    return {
+      enabled: this.config.anchorEnabled,
+      last: last ? {
+        txid: last.txid,
+        root: last.root,
+        leafCount: last.leafCount,
+        ts: last.ts,
+        explorer: this.config.network === 'testnet4'
+          ? `${this.config.explorerBase}/tx/${last.txid}` : undefined,
+        current: last.root === root,
+      } : null,
+      currentRoot: root || null,
+      currentLeafCount: leafCount,
+      recipe: 'leaves = sha256 digests of every attestation payload (the digestHex field), sorted by attestation id; parent = sha256(left || right); an odd node pairs with itself. The Bitcoin tx OP_RETURN carries "BSQA" + 0x01 + root (32 bytes) + leaf count (uint32 LE).',
+    };
+  }
+
   // ── Status surfaces ────────────────────────────────────
 
   /** Live view of one intent, refreshing confirmations from the node. */
@@ -1367,6 +1477,7 @@ export class BtcsoqGateway {
         totalSats: deposits.reduce((s, d) => s + d.sats, 0),
         unsolicited: deposits.filter((d) => d.intentId === null).length,
       },
+      anchor: this.anchorStatus(),
     };
   }
 

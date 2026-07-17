@@ -191,6 +191,20 @@ export interface DepositRecord {
   spvProof?: string;
 }
 
+/**
+ * A Bitcoin anchor (WS4): the merkle root of the attestation ledger,
+ * written into a testnet4 OP_RETURN. The fortress's books, notarized by
+ * the parent chain itself.
+ */
+export interface AnchorRecord {
+  ts: number;
+  /** Merkle root hex over attestation digests (recipe in the API response) */
+  root: string;
+  leafCount: number;
+  /** The Bitcoin transaction carrying the OP_RETURN */
+  txid: string;
+}
+
 interface GatewayState {
   intents: Record<string, BtcIntent>;
   deposits: Record<string, DepositRecord>;
@@ -198,14 +212,15 @@ interface GatewayState {
   converts: Record<string, ConvertRecord>;
   ln402: Record<string, Ln402Record>;
   attestations: Record<string, AttestationRecord>;
+  anchors: AnchorRecord[];
   meta: { pollCursor?: string; soqScanHeight?: number };
 }
 
-const EMPTY_STATE: GatewayState = { intents: {}, deposits: {}, mints: {}, converts: {}, ln402: {}, attestations: {}, meta: {} };
+const EMPTY_STATE: GatewayState = { intents: {}, deposits: {}, mints: {}, converts: {}, ln402: {}, attestations: {}, anchors: [], meta: {} };
 
 export class GatewayStore {
   private file: string;
-  private state: GatewayState = { ...EMPTY_STATE, intents: {}, deposits: {}, mints: {}, converts: {}, ln402: {}, attestations: {}, meta: {} };
+  private state: GatewayState = { ...EMPTY_STATE, intents: {}, deposits: {}, mints: {}, converts: {}, ln402: {}, attestations: {}, anchors: [], meta: {} };
   private saveChain: Promise<void> = Promise.resolve();
 
   constructor(dataDir: string) {
@@ -224,6 +239,7 @@ export class GatewayStore {
         converts: parsed.converts || {},
         ln402: parsed.ln402 || {},
         attestations: parsed.attestations || {},
+        anchors: parsed.anchors || [],
         meta: parsed.meta || {},
       };
     } catch (err: any) {
@@ -364,6 +380,22 @@ export class GatewayStore {
 
   listLn402(): Ln402Record[] {
     return Object.values(this.state.ln402).sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  // ── Bitcoin anchors (WS4) ──────────────────────────────
+
+  async putAnchor(rec: AnchorRecord): Promise<void> {
+    this.state.anchors.unshift(rec);
+    if (this.state.anchors.length > 50) this.state.anchors.pop();
+    await this.persist();
+  }
+
+  lastAnchor(): AnchorRecord | undefined {
+    return this.state.anchors[0];
+  }
+
+  listAnchors(): AnchorRecord[] {
+    return this.state.anchors;
   }
 
   // ── Attestations ───────────────────────────────────────
