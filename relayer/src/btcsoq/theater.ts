@@ -1,21 +1,26 @@
 /**
- * BTCSOQ theater — the payoff acts. Three live demonstrations that run the
- * REAL rails in the foreground, streamed stage-by-stage over SSE:
+ * BTCSOQ theater — the operations terminal's engine room.
  *
- *   GET /api/btc/theater/ask?q=<preset|text>   Bitcoin buys a thought:
- *       402 paywall → PQ Lightning payment → answer → signed receipt.
- *   GET /api/btc/theater/duel?opener=<preset>&turns=N   Machines doing
- *       business: Ada (:4020) and Bit (:4021) answer each other, every
- *       turn bought with a real invoice against each agent's own ML-DSA
- *       identity.
- *   GET /api/btc/theater/race?laps=N   The race: N real Lightning payments
- *       (payer channel → payee channel, each a real eLTOO state bump),
- *       timed per lap, against Bitcoin's block clock.
+ * The terminal (live.html) is ALIVE before anyone touches it, in the
+ * soq402-console tradition: a scheduled demonstration runs itself on a
+ * countdown, every viewer watches the same events over a shared broadcast
+ * stream, and a settlement tape + session counters tick continuously.
+ * Visitor-triggered programs ride the same rails and mirror into the tape.
  *
- * Nothing here is simulated and nothing is persisted — the acts are
- * ephemeral performances on the same infrastructure the gateway ledger
- * already proves. Costs are shors on stagenet; rate limits + daily caps
- * keep a public crowd from draining the payer channel.
+ * Surfaces (all under /api/btc/theater):
+ *   GET /stream      shared broadcast SSE: tape events, heartbeat acts,
+ *                    counter updates, next-demonstration clock
+ *   GET /status      session stats, program budgets, agent cards, clocks
+ *   GET /ask?q=      program 01 — pay-per-answer (per-visitor SSE)
+ *   GET /duel?...    program 02 — M2M negotiation, Ada × Bit
+ *   GET /race?laps=  program 03 — throughput vs the Bitcoin clock
+ *
+ * Gating is VISIBLE by design: every 429 carries retryAfterSec, /status
+ * carries budget meters, and when the public budget is spent the scheduled
+ * demonstration keeps the room alive. Nothing fails silently.
+ *
+ * Nothing is simulated and nothing persists — restart resets tape and
+ * budgets (stricter, never looser). Costs are stagenet shors.
  */
 
 import type express from 'express';
@@ -46,6 +51,11 @@ const DUEL_PRESETS: Record<string, string> = {
   quantum: 'Your counterpart claims quantum computers will never threaten Bitcoin. Open the debate with your strongest two-sentence argument.',
 };
 
+/** Heartbeat rotation: what the terminal demonstrates on its own clock. */
+const HEARTBEAT_ASKS = ['shor', 'paid', 'harvest', 'lightning', 'upgrade'];
+const HEARTBEAT_EVERY_MS = 5 * 60_000;
+const HEARTBEAT_RACE_EVERY = 4;   // every 4th heartbeat runs the race instead
+
 const MAX_FREEFORM_CHARS = 140;
 const DUEL_TURNS_DEFAULT = 4;
 const DUEL_TURNS_MAX = 6;
@@ -53,35 +63,116 @@ const RACE_LAPS_DEFAULT = 10;
 const RACE_LAPS_MAX = 12;
 const RACE_LAP_SHORS = 1000;
 
-// Per-IP rate limiting + global daily caps (in-memory; resets on restart,
-// which only ever makes the limits stricter than advertised, never looser).
+const BUDGETS: Record<string, { cap: number; perMin: number }> = {
+  ask: { cap: 500, perMin: 3 },
+  duel: { cap: 60, perMin: 1 },
+  race: { cap: 100, perMin: 1 },
+};
+
+// ── rate limiting (structured — the UI renders the countdown) ──
 const hits = new Map<string, number[]>();
-function limited(ip: string, route: string, perMin: number): boolean {
+function retryAfterSec(ip: string, route: string): number {
   const key = `${route}:${ip}`;
   const now = Date.now();
+  const perMin = BUDGETS[route].perMin;
   const recent = (hits.get(key) || []).filter((t) => now - t < 60_000);
-  if (recent.length >= perMin) { hits.set(key, recent); return true; }
+  if (recent.length >= perMin) {
+    hits.set(key, recent);
+    return Math.max(1, Math.ceil((recent[0] + 60_000 - now) / 1000));
+  }
   recent.push(now);
   hits.set(key, recent);
-  return false;
-}
-const daily = new Map<string, { day: string; n: number }>();
-function overDailyCap(route: string, cap: number): boolean {
-  const day = new Date().toISOString().slice(0, 10);
-  const c = daily.get(route);
-  if (!c || c.day !== day) { daily.set(route, { day, n: 1 }); return false; }
-  if (c.n >= cap) return true;
-  c.n += 1;
-  return false;
+  return 0;
 }
 
-/** SSE plumbing: one event per stage, terminal 'done'/'error', then close. */
+// ── daily budgets (public programs; the heartbeat runs off-budget) ──
+const daily = new Map<string, { day: string; n: number }>();
+function today(): string { return new Date().toISOString().slice(0, 10); }
+function budgetUsed(route: string): number {
+  const c = daily.get(route);
+  return c && c.day === today() ? c.n : 0;
+}
+function takeBudget(route: string): boolean {
+  const day = today();
+  const c = daily.get(route);
+  if (!c || c.day !== day) { daily.set(route, { day, n: 1 }); return true; }
+  if (c.n >= BUDGETS[route].cap) return false;
+  c.n += 1;
+  return true;
+}
+
+// ── session stats + settlement tape (in-memory, resets on restart) ──
+const session = {
+  startedAt: Date.now(),
+  acts: 0,
+  messagesBilled: 0,
+  shorsSettled: 0,
+  receiptsVerified: 0,
+  settleMsTotal: 0,
+  settleMsCount: 0,
+};
+const agentEarned: Record<string, number> = { Ada: 0, Bit: 0 };
+
+interface TapeEntry { ts: number; line: string; cls: string }
+const tape: TapeEntry[] = [];
+function tapePush(line: string, cls = '') {
+  tape.unshift({ ts: Date.now(), line, cls });
+  if (tape.length > 80) tape.pop();
+  broadcast({ kind: 'tape', ts: Date.now(), line, cls });
+}
+
+// ── broadcast channel (every open terminal shares this stream) ──
+const viewers = new Set<express.Response>();
+function broadcast(event: Record<string, unknown>) {
+  const frame = `data: ${JSON.stringify(event)}\n\n`;
+  for (const res of viewers) {
+    try { res.write(frame); } catch { viewers.delete(res); }
+  }
+}
+setInterval(() => {
+  // Keepalive comment + watcher count (also defeats proxy idle timeouts)
+  const frame = `: ping\ndata: ${JSON.stringify({ kind: 'watchers', n: viewers.size })}\n\n`;
+  for (const res of viewers) {
+    try { res.write(frame); } catch { viewers.delete(res); }
+  }
+}, 25_000);
+
+function recordSettle(amountSat: number, payMs: number, agent?: string, receiptVerified?: boolean) {
+  session.messagesBilled += 1;
+  session.shorsSettled += amountSat;
+  session.settleMsTotal += payMs;
+  session.settleMsCount += 1;
+  if (receiptVerified) session.receiptsVerified += 1;
+  if (agent) agentEarned[agent] = (agentEarned[agent] ?? 0) + amountSat;
+  broadcast({ kind: 'session', ...sessionView() });
+}
+function sessionView() {
+  return {
+    acts: session.acts,
+    messagesBilled: session.messagesBilled,
+    shorsSettled: session.shorsSettled,
+    receiptsVerified: session.receiptsVerified,
+    avgSettleMs: session.settleMsCount ? Math.round(session.settleMsTotal / session.settleMsCount) : null,
+    earned: { ...agentEarned },
+  };
+}
+
+/** Tape lines for one paid ask, wherever it came from. */
+function tapeAsk(source: string, e: any) {
+  if (e.stage === 'challenge') tapePush(`402 challenge · ${e.amountSat} shors · inv ${String(e.invoiceId).slice(0, 10)}`, 'c402');
+  if (e.stage === 'paid') { tapePush(`paid ${e.amountSat} shors · settled in ${e.payMs}ms`, 'paid'); }
+  if (e.stage === 'answer') {
+    tapePush(`receipt signed ML-DSA-44 · ${e.receiptVerified ? 'verified' : 'UNVERIFIED'} · ${source}`, e.receiptVerified ? 'sealed' : 'warn');
+  }
+}
+
+// ── SSE plumbing ──────────────────────────────────────────
 function sseOpen(res: express.Response): (event: Record<string, unknown>) => void {
   res.status(200).set({
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no',   // nginx: do not buffer the stream
+    'X-Accel-Buffering': 'no',
   });
   res.flushHeaders();
   return (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -95,17 +186,140 @@ function resolveQuestion(raw: unknown, presets: Record<string, string>): string 
   return q;
 }
 
+/** Uniform gate: 429 with a countdown the UI can render. Never silent. */
+function gate(req: express.Request, res: express.Response, route: string): boolean {
+  const ip = req.socket.remoteAddress || 'unknown';
+  const wait = retryAfterSec(ip, route);
+  if (wait > 0) {
+    res.status(429).json({ ok: false, reason: 'cooldown', retryAfterSec: wait,
+      error: `This program is rate limited. Your next slot opens in ${wait}s.` });
+    return false;
+  }
+  if (!takeBudget(route)) {
+    res.status(429).json({ ok: false, reason: 'budget', retryAfterSec: secondsToUtcMidnight(),
+      error: 'The public budget for this program is spent for today. It resets at 00:00 UTC. The scheduled demonstration keeps running.' });
+    return false;
+  }
+  return true;
+}
+function secondsToUtcMidnight(): number {
+  const now = new Date();
+  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  return Math.ceil((next - now.getTime()) / 1000);
+}
+
+// ── the heartbeat: the terminal demonstrates itself ───────
+let nextDemoAt = 0;
+let heartbeatN = 0;
+let heartbeatRunning = false;
+
+async function runHeartbeat(deps: TheaterDeps) {
+  if (heartbeatRunning) return;
+  heartbeatRunning = true;
+  heartbeatN += 1;
+  const isRace = heartbeatN % HEARTBEAT_RACE_EVERY === 0;
+  try {
+    const ln = await deps.ln();
+    session.acts += 1;
+    if (isRace) {
+      broadcast({ kind: 'demo', stage: 'start', program: 'race', laps: 5 });
+      tapePush('scheduled demonstration · throughput, 5 payments', 'status');
+      const payerChannel = await ln.ensureChannel();
+      const p = await deps.payee();
+      const payeeChannel = await ln.ensurePayeeChannel(p.address, p.pubkeyHex, 100_000_000);
+      let view = await ln.channelView(payerChannel);
+      const t0 = Date.now();
+      for (let i = 1; i <= 5; i++) {
+        const inv = await ln.createInvoice(payeeChannel, RACE_LAP_SHORS, `heartbeat lap ${i}`);
+        const tLap = Date.now();
+        try { await ln.payInvoiceFast(inv, payerChannel, view, RACE_LAP_SHORS); }
+        catch { view = await ln.channelView(payerChannel); await ln.payInvoiceFast(inv, payerChannel, view, RACE_LAP_SHORS); }
+        const ms = Date.now() - tLap;
+        recordSettle(RACE_LAP_SHORS, ms);
+        broadcast({ kind: 'demo', stage: 'lap', program: 'race', i, ms, amountSat: RACE_LAP_SHORS });
+        tapePush(`paid ${RACE_LAP_SHORS} shors · settled in ${ms}ms · scheduled`, 'paid');
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      broadcast({ kind: 'demo', stage: 'done', program: 'race', totalMs: Date.now() - t0 });
+    } else {
+      const presetId = HEARTBEAT_ASKS[heartbeatN % HEARTBEAT_ASKS.length];
+      const question = ASK_PRESETS[presetId];
+      broadcast({ kind: 'demo', stage: 'start', program: 'ask', question });
+      tapePush('scheduled demonstration · a machine gets paid to think', 'status');
+      const r = await ln.performPaidAsk(question, deps.adaUrl, (e) => {
+        broadcast({ kind: 'demo', program: 'ask', ...e });
+        tapeAsk('scheduled', e);
+      });
+      recordSettle(r.amountSat, r.payMs, 'Ada', r.receiptVerified);
+      broadcast({ kind: 'demo', stage: 'done', program: 'ask' });
+    }
+  } catch (err: any) {
+    logger.warn(`[BTCSOQ:theater] heartbeat failed: ${err.message}`);
+    tapePush('scheduled demonstration deferred (rail busy) · next on the clock', 'warn');
+  } finally {
+    heartbeatRunning = false;
+    nextDemoAt = Date.now() + HEARTBEAT_EVERY_MS;
+    broadcast({ kind: 'clock', nextDemoAt });
+  }
+}
+
+// ── agent health cache (for the cards) ────────────────────
+const agentHealth: Record<string, { up: boolean; pub: string; checkedAt: number }> = {};
+async function checkAgent(name: string, url: string) {
+  try {
+    const r = await (await fetch(`${url}/.well-known/soq402`, { signal: AbortSignal.timeout(5000) })).json() as any;
+    agentHealth[name] = { up: !!r?.seller_pub, pub: String(r?.seller_pub ?? '').slice(0, 16), checkedAt: Date.now() };
+  } catch {
+    agentHealth[name] = { up: false, pub: agentHealth[name]?.pub ?? '', checkedAt: Date.now() };
+  }
+}
+
 export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps): void {
   if (!deps.enabled) {
     logger.info('[BTCSOQ:theater] disabled (theater config not set)');
     return;
   }
 
-  // ── Act A: Bitcoin buys a thought ─────────────────────
+  // Heartbeat clock: first demonstration ~20s after boot, then every 5 min.
+  nextDemoAt = Date.now() + 20_000;
+  setInterval(() => {
+    if (Date.now() >= nextDemoAt && !heartbeatRunning) {
+      runHeartbeat(deps).catch(() => { /* logged inside */ });
+    }
+  }, 1000);
+  setInterval(() => { checkAgent('Ada', deps.adaUrl); checkAgent('Bit', deps.bitUrl); }, 60_000);
+  checkAgent('Ada', deps.adaUrl);
+  checkAgent('Bit', deps.bitUrl);
+
+  // ── GET /api/btc/theater/stream — the shared broadcast ──
+  app.get('/api/btc/theater/stream', (req, res) => {
+    const send = sseOpen(res);
+    viewers.add(res);
+    send({ kind: 'hello', nextDemoAt, watchers: viewers.size, session: sessionView(),
+           tape: tape.slice(0, 30) });
+    req.on('close', () => viewers.delete(res));
+  });
+
+  // ── GET /api/btc/theater/status — meters, cards, clocks ──
+  app.get('/api/btc/theater/status', async (_req, res) => {
+    res.json({
+      ok: true,
+      nextDemoAt,
+      watchers: viewers.size,
+      session: sessionView(),
+      budgets: Object.fromEntries(Object.entries(BUDGETS).map(([k, v]) =>
+        [k, { used: budgetUsed(k), cap: v.cap }])),
+      agents: [
+        { name: 'Ada', ...agentHealth['Ada'], priceShors: 333, earnedSession: agentEarned.Ada },
+        { name: 'Bit', ...agentHealth['Bit'], priceShors: 333, earnedSession: agentEarned.Bit },
+      ],
+      settlement: 'hosted L2SOQ channels (custodial, disclosed)',
+    });
+  });
+
+  // ── Program 01: pay-per-answer ────────────────────────
   app.get('/api/btc/theater/ask', async (req, res) => {
-    const ip = req.socket.remoteAddress || 'unknown';
-    if (limited(ip, 'ask', 3)) return res.status(429).json({ ok: false, error: 'Rate limited' });
-    if (overDailyCap('ask', 500)) return res.status(429).json({ ok: false, error: 'Daily demo budget spent — back tomorrow' });
+    if (!gate(req, res, 'ask')) return;
     const question = resolveQuestion(req.query.q, ASK_PRESETS);
     if (!question) return res.status(400).json({ ok: false, error: `q required (preset id or question ≤ ${MAX_FREEFORM_CHARS} chars)` });
 
@@ -113,29 +327,35 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
     send({ stage: 'start', question });
     try {
       const ln = await deps.ln();
-      await ln.performPaidAsk(question, deps.adaUrl, send);
+      session.acts += 1;
+      const r = await ln.performPaidAsk(question, deps.adaUrl, (e) => {
+        send(e);
+        tapeAsk('visitor', e);
+      });
+      recordSettle(r.amountSat, r.payMs, 'Ada', r.receiptVerified);
       send({ stage: 'done' });
     } catch (err: any) {
       logger.warn(`[BTCSOQ:theater] ask failed: ${err.message}`);
-      send({ stage: 'error', message: 'The rail hiccuped — try again.' });
+      send({ stage: 'error', message: 'The rail hiccuped. Try again.' });
+      tapePush('visitor program failed · rail hiccup', 'warn');
     } finally {
       res.end();
     }
   });
 
-  // ── Act B: machines doing business (Ada × Bit) ────────
+  // ── Program 02: M2M negotiation (Ada × Bit) ───────────
   app.get('/api/btc/theater/duel', async (req, res) => {
-    const ip = req.socket.remoteAddress || 'unknown';
-    if (limited(ip, 'duel', 1)) return res.status(429).json({ ok: false, error: 'Rate limited' });
-    if (overDailyCap('duel', 60)) return res.status(429).json({ ok: false, error: 'Daily demo budget spent — back tomorrow' });
+    if (!gate(req, res, 'duel')) return;
     const opener = resolveQuestion(req.query.opener ?? 'price', DUEL_PRESETS);
     if (!opener) return res.status(400).json({ ok: false, error: 'opener required (preset id or text)' });
     const turns = Math.min(Math.max(parseInt(String(req.query.turns)) || DUEL_TURNS_DEFAULT, 2), DUEL_TURNS_MAX);
 
     const send = sseOpen(res);
     send({ stage: 'start', opener, turns });
+    tapePush(`M2M negotiation opened · ${turns} paid turns`, 'status');
     try {
       const ln = await deps.ln();
+      session.acts += 1;
       const agents = [
         { name: 'Ada', url: deps.adaUrl },
         { name: 'Bit', url: deps.bitUrl },
@@ -151,34 +371,35 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
             `Another agent, ${other.name}, was just paid to say: "${prevAnswer.slice(0, 400)}". ` +
             `Reply to ${other.name} in at most two sentences. You are being paid per answer over post-quantum Lightning.`;
         }
-        send({ stage: 'turn', i, agent: agent.name, asking: true });
-        const r = await ln.performPaidAsk(prompt, agent.url, (e) =>
-          send({ ...e, i, agent: agent.name })
-        );
+        send({ stage: 'turn', i, agent: agent.name });
+        const r = await ln.performPaidAsk(prompt, agent.url, (e) => send({ ...e, i, agent: agent.name }));
         earned[agent.name] += r.amountSat;
+        recordSettle(r.amountSat, r.payMs, agent.name, r.receiptVerified);
+        tapePush(`${agent.name} paid ${r.amountSat} shors · receipt ${r.receiptVerified ? 'verified' : 'UNVERIFIED'} · settled ${r.payMs}ms`, 'sealed');
         prevAnswer = r.answer;
         send({ stage: 'earnings', earned: { ...earned } });
       }
       send({ stage: 'done', earned });
+      tapePush(`M2M negotiation closed · ${earned.Ada + earned.Bit} shors moved machine to machine`, 'status');
     } catch (err: any) {
       logger.warn(`[BTCSOQ:theater] duel failed: ${err.message}`);
-      send({ stage: 'error', message: 'The rail hiccuped — try again.' });
+      send({ stage: 'error', message: 'The rail hiccuped. Try again.' });
+      tapePush('M2M negotiation failed · rail hiccup', 'warn');
     } finally {
       res.end();
     }
   });
 
-  // ── Act C: the race ───────────────────────────────────
+  // ── Program 03: throughput vs the Bitcoin clock ───────
   app.get('/api/btc/theater/race', async (req, res) => {
-    const ip = req.socket.remoteAddress || 'unknown';
-    if (limited(ip, 'race', 1)) return res.status(429).json({ ok: false, error: 'Rate limited' });
-    if (overDailyCap('race', 100)) return res.status(429).json({ ok: false, error: 'Daily demo budget spent — back tomorrow' });
+    if (!gate(req, res, 'race')) return;
     const laps = Math.min(Math.max(parseInt(String(req.query.laps)) || RACE_LAPS_DEFAULT, 3), RACE_LAPS_MAX);
 
     const send = sseOpen(res);
     send({ stage: 'start', laps, lapShors: RACE_LAP_SHORS });
     try {
       const ln = await deps.ln();
+      session.acts += 1;
       const payerChannel = await ln.ensureChannel();
       const p = await deps.payee();
       const payeeChannel = await ln.ensurePayeeChannel(p.address, p.pubkeyHex, 100_000_000);
@@ -186,8 +407,6 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
 
       const t0 = Date.now();
       const lapMs: number[] = [];
-      // 2 LSP requests per lap + pacing keeps a full race inside the LSP
-      // front's public per-IP budget (10 r/s, burst 20) with headroom.
       let view = await ln.channelView(payerChannel);
       for (let i = 1; i <= laps; i++) {
         const invoiceId = await ln.createInvoice(payeeChannel, RACE_LAP_SHORS, `race lap ${i}`);
@@ -195,29 +414,31 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
         try {
           await ln.payInvoiceFast(invoiceId, payerChannel, view, RACE_LAP_SHORS);
         } catch {
-          // Stale local view (or a countersign bump) — re-read once, retry.
           view = await ln.channelView(payerChannel);
           await ln.payInvoiceFast(invoiceId, payerChannel, view, RACE_LAP_SHORS);
         }
         const ms = Date.now() - tLap;
         lapMs.push(ms);
+        recordSettle(RACE_LAP_SHORS, ms);
         send({ stage: 'lap', i, ms, amountSat: RACE_LAP_SHORS });
         if (i < laps) await new Promise((r) => setTimeout(r, 220));
       }
-      send({
-        stage: 'done',
-        laps,
+      const summary = {
+        stage: 'done', laps,
         totalMs: Date.now() - t0,
         avgMs: Math.round(lapMs.reduce((a, b) => a + b, 0) / lapMs.length),
         totalShors: laps * RACE_LAP_SHORS,
-      });
+      };
+      send(summary);
+      tapePush(`throughput · ${laps} payments · avg ${summary.avgMs}ms · visitor`, 'paid');
     } catch (err: any) {
       logger.warn(`[BTCSOQ:theater] race failed: ${err.message}`);
-      send({ stage: 'error', message: 'The rail hiccuped — try again.' });
+      send({ stage: 'error', message: 'The rail hiccuped. Try again.' });
+      tapePush('throughput program failed · rail hiccup', 'warn');
     } finally {
       res.end();
     }
   });
 
-  logger.info('[BTCSOQ:theater] Acts mounted: /api/btc/theater/{ask,duel,race}');
+  logger.info('[BTCSOQ:theater] Terminal engine mounted: /api/btc/theater/{stream,status,ask,duel,race} + heartbeat');
 }
