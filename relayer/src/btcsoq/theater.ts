@@ -125,6 +125,18 @@ const agentEarned: Record<string, number> = { Grok: 0, Claude: 0 };
 
 interface TapeEntry { ts: number; line: string; cls: string }
 const tape: TapeEntry[] = [];
+
+/**
+ * The rarest event on the tape: a reward mined straight across the boundary,
+ * confirmed inside our own block, its key never once shown while spendable.
+ * The miner announces it here on a win. Held so late-joining boards (which
+ * poll rather than stream) can still light up. Survives until the next win.
+ */
+interface QuantumDark {
+  ts: number; txid: string; sats: number;
+  blockHash: string; height: number; intentId: string;
+}
+let lastQuantumDark: QuantumDark | null = null;
 function tapePush(line: string, cls = '') {
   tape.unshift({ ts: Date.now(), line, cls });
   if (tape.length > 80) tape.pop();
@@ -174,6 +186,11 @@ function tapeAsk(source: string, e: any) {
   if (e.stage === 'answer') {
     tapePush(`receipt signed ML-DSA-44 · ${e.receiptVerified ? 'verified' : 'UNVERIFIED'} · ${source}`, e.receiptVerified ? 'sealed' : 'warn');
   }
+}
+
+function isLocalhost(req: express.Request): boolean {
+  const addr = req.socket.remoteAddress || '';
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
 }
 
 // ── SSE plumbing ──────────────────────────────────────────
@@ -341,6 +358,36 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
     logger.info(`[BTCSOQ:theater] Miner beat armed: ${beat.sats} sats/press, ${beat.cap}/day public`);
   }
 
+  // ── Quantum-dark crossing: the miner announces a win here ──
+  // A reward mined straight across the boundary, confirmed inside our own
+  // block, key never shown while spendable. Mounts independent of AI acts so
+  // the booth boards celebrate even if the theater stack is off.
+  app.post('/api/btc/theater/quantum-dark', (req, res) => {
+    if (!isLocalhost(req)) return res.status(403).json({ ok: false });
+    const b = req.body || {};
+    if (!b.txid || typeof b.txid !== 'string') {
+      return res.status(400).json({ ok: false, error: 'txid required' });
+    }
+    const qd: QuantumDark = {
+      ts: Date.now(),
+      txid: String(b.txid),
+      sats: Number(b.sats) || 0,
+      blockHash: String(b.blockHash || ''),
+      height: Number(b.height) || 0,
+      intentId: String(b.intentId || ''),
+    };
+    lastQuantumDark = qd;
+    tapePush('a quantum-dark coin was mined', 'qdark');
+    tapePush(`reward crossed the boundary inside its own block · never broadcast · tx ${qd.txid.slice(0, 12)}…`, 'qdark');
+    tapePush('its key was never shown while it could be spent · only a miner can make this coin', 'qdark');
+    broadcast({ kind: 'quantum-dark', ...qd });
+    logger.info(`[BTCSOQ:theater] quantum-dark crossing announced: ${qd.txid.slice(0, 16)}… (block ${qd.height})`);
+    res.json({ ok: true });
+  });
+  app.get('/api/btc/theater/quantum-dark', (_req, res) => {
+    res.json({ ok: true, quantumDark: lastQuantumDark });
+  });
+
   if (!deps.enabled) {
     logger.info('[BTCSOQ:theater] AI acts disabled (theater config not set); miner beat mounts independently');
     return;
@@ -405,6 +452,7 @@ export function mountTheaterRoutes(app: express.Application, deps: TheaterDeps):
         { name: 'Claude', ...agentHealth['Claude'], priceShors: 333, earnedSession: agentEarned.Claude },
       ],
       settlement: 'hosted L2SOQ channels (custodial, disclosed)',
+      quantumDark: lastQuantumDark,
     });
   });
 

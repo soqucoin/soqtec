@@ -133,6 +133,22 @@ def build_coinbase(height, value_sats, spk_hex, extranonce, commitment=None):
     return stripped, with_wit
 
 
+def announce_quantum_dark(network, payload):
+    """Tell the booth boards a reward crossed the boundary inside its own block.
+    Best-effort: a celebration must never hold up the miner."""
+    port = RELAYER_PORT[network]
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/btc/theater/quantum-dark",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=10).read()
+    except Exception as e:
+        log(f"celebration announce failed (harmless): {e!r}")
+
+
 def create_intent(network, ssq_address):
     port = RELAYER_PORT[network]
     req = urllib.request.Request(
@@ -279,8 +295,16 @@ def main():
             if res in ("", None):
                 log(f"*** BLOCK ACCEPTED h={height} {block_hash} txs={ntx} after {dt:.0f}s")
                 if ntx == 2:
-                    log(f"*** ZERO-EXPOSURE CROSSING: {cross_txid[::-1].hex()} confirmed in our own "
+                    cross_hex = cross_txid[::-1].hex()
+                    log(f"*** ZERO-EXPOSURE CROSSING: {cross_hex} confirmed in our own "
                         f"block, never broadcast (intent {intent_id})")
+                    announce_quantum_dark(args.network, {
+                        "txid": cross_hex,
+                        "sats": args.crossing_sats,
+                        "blockHash": block_hash,
+                        "height": height,
+                        "intentId": intent_id or "",
+                    })
                 if args.once:
                     return
             else:
