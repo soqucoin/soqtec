@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
-"""Coinbase-only CPU miner for testnet4 min-difficulty windows (regtest = test mode).
+"""Coinbase-only CPU miner for testnet4 min-difficulty windows (regtest = test mode),
+with optional zero-exposure fortress crossing.
 
 testnet4 keeps the 20-minute rule: a block whose timestamp is more than 20 minutes
 past the previous block may use the minimum difficulty (nBits 0x1d00ffff). We
 future-date the header to prev_time + 20min + 1s (legal up to ~2h ahead of wall
-clock) and grind the nonce with bitcoin-util. Blocks contain only our coinbase,
-so the merkle root is the coinbase txid and no witness commitment is required.
+clock) and grind the nonce with bitcoin-util.
+
+Crossing mode (--crossing-ssq): each attempt pre-signs a payment from the release
+wallet to a standing boundary deposit intent and embeds it in the block next to the
+coinbase. The transaction is never broadcast; its first public appearance is at
+1 confirmation inside our own block, so the pubkey is never visible while spendable
+(the mempool race a quantum adversary needs does not exist). Requires a BIP141
+witness commitment in the coinbase since the crossing spend is segwit. Inputs are
+locked in-wallet (lockUnspents) so the gateway's own beat/anchor sends cannot race
+them; every attempt unlocks and rebuilds fresh so nothing goes stale.
 
 Payout goes to --address (btcsoq-release wallet). Run under systemd with
 Nice=19 + CPUAffinity so the demo stack is unaffected.
@@ -18,10 +27,13 @@ import struct
 import subprocess
 import sys
 import time
+import urllib.request
 
 RPC_ENV = "/root/.btcsoq-rpc.env"
 MIN_DIFF_BITS = 0x1D00FFFF
-MAX_FUTURE_SLACK = 7100  # stay inside the 7200s future-block consensus limit (100s NTP margin; rivals race from the full 7200)
+MAX_FUTURE_SLACK = 7100  # stay inside the 7200s future-block consensus limit (100s NTP margin)
+RELAYER_PORT = {"testnet4": 3006, "regtest": 3005}
+WITNESS_RESERVED = b"\x00" * 32
 
 
 def log(msg):
@@ -57,7 +69,7 @@ class Cli:
         cmd = list(self.base)
         if wallet:
             cmd.append(f"-rpcwallet={wallet}")
-        cmd += list(args)
+        cmd += [a if isinstance(a, str) else json.dumps(a) for a in args]
         out = subprocess.run(cmd, capture_output=True, text=True)
         if out.returncode != 0:
             raise RuntimeError(f"bitcoin-cli {args[0]}: {out.stderr.strip()}")
@@ -90,21 +102,71 @@ def varint(n):
     return b"\xfe" + struct.pack("<I", n)
 
 
-def build_coinbase(height, value_sats, spk_hex, extranonce):
+def build_coinbase(height, value_sats, spk_hex, extranonce, commitment=None):
+    """Returns (stripped_serialization_for_txid, block_serialization).
+
+    Without a commitment both are the same legacy bytes. With one, the block
+    serialization carries the segwit marker/flag and the reserved witness item,
+    and the outputs gain the OP_RETURN commitment (BIP141).
+    """
     scriptsig = script_num(height) + b"/soqucoin fortress/" + extranonce
     spk = bytes.fromhex(spk_hex)
-    tx = (
-        struct.pack("<i", 2)
-        + b"\x01"                       # 1 input
-        + b"\x00" * 32 + b"\xff" * 4    # null prevout
+    vin = (
+        b"\x01"
+        + b"\x00" * 32 + b"\xff" * 4
         + varint(len(scriptsig)) + scriptsig
-        + b"\xff" * 4                   # sequence
-        + b"\x01"                       # 1 output
-        + struct.pack("<q", value_sats)
-        + varint(len(spk)) + spk
-        + b"\x00" * 4                   # locktime
+        + b"\xff" * 4
     )
-    return tx
+    outs = [struct.pack("<q", value_sats) + varint(len(spk)) + spk]
+    if commitment is not None:
+        cscript = b"\x6a\x24\xaa\x21\xa9\xed" + commitment
+        outs.append(struct.pack("<q", 0) + varint(len(cscript)) + cscript)
+    vout = varint(len(outs)) + b"".join(outs)
+    version = struct.pack("<i", 2)
+    locktime = b"\x00" * 4
+
+    stripped = version + vin + vout + locktime
+    if commitment is None:
+        return stripped, stripped
+    witness = b"\x01" + varint(len(WITNESS_RESERVED)) + WITNESS_RESERVED
+    with_wit = version + b"\x00\x01" + vin + vout + witness + locktime
+    return stripped, with_wit
+
+
+def create_intent(network, ssq_address):
+    port = RELAYER_PORT[network]
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/btc/intent",
+        data=json.dumps({"ssqAddress": ssq_address}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        body = json.loads(r.read())
+    if not body.get("ok"):
+        raise RuntimeError(f"intent creation refused: {body}")
+    return body["intentId"], body["btcDepositAddress"]
+
+
+def build_crossing_tx(cli, wallet, deposit_addr, sats):
+    """Fund + sign (never broadcast) a payment to the boundary. Returns
+    (raw_hex, txid_internal, wtxid_internal, fee_sats)."""
+    cli("lockunspent", "true", wallet=wallet)  # release last attempt's locks
+    funded = cli(
+        "walletcreatefundedpsbt", [], {deposit_addr: round(sats / 1e8, 8)}, 0,
+        {"fee_rate": 1, "lockUnspents": True},
+        wallet=wallet,
+    )
+    processed = cli("walletprocesspsbt", funded["psbt"], wallet=wallet)
+    final = cli("finalizepsbt", processed["psbt"], wallet=wallet)
+    if not final.get("complete"):
+        raise RuntimeError("crossing psbt did not finalize")
+    raw = final["hex"]
+    dec = cli("decoderawtransaction", raw)
+    txid_i = bytes.fromhex(dec["txid"])[::-1]
+    wtxid_i = bytes.fromhex(dec["hash"])[::-1]
+    fee_sats = round(funded["fee"] * 1e8)
+    return raw, txid_i, wtxid_i, fee_sats
 
 
 def grind(header_hex, cores):
@@ -121,9 +183,12 @@ def grind(header_hex, cores):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--network", choices=["testnet4", "regtest"], required=True)
-    ap.add_argument("--address", required=True, help="payout address")
+    ap.add_argument("--address", required=True, help="coinbase payout address")
     ap.add_argument("--cores", default="", help="taskset core list, e.g. 4-7")
     ap.add_argument("--once", action="store_true", help="exit after one solved block")
+    ap.add_argument("--crossing-ssq", default="", help="ssq address; enables in-block fortress crossing")
+    ap.add_argument("--crossing-sats", type=int, default=10000)
+    ap.add_argument("--wallet", default="btcsoq-release")
     args = ap.parse_args()
 
     cli = Cli(args.network)
@@ -131,12 +196,21 @@ def main():
     if not info.get("isvalid"):
         sys.exit(f"invalid address {args.address}")
     spk_hex = info["scriptPubKey"]
+
+    intent_id = deposit_addr = None
+    if args.crossing_ssq:
+        try:
+            intent_id, deposit_addr = create_intent(args.network, args.crossing_ssq)
+            log(f"crossing armed: intent {intent_id} boundary {deposit_addr} ({args.crossing_sats} sats/block)")
+        except Exception as e:
+            log(f"crossing DISARMED (intent creation failed: {e!r}); mining empty blocks")
+
     log(f"mining {args.network} → {args.address} (cores={args.cores or 'all'})")
 
     attempts = 0
     while True:
         try:
-            tmpl = cli("getblocktemplate", json.dumps({"rules": ["segwit"]}))
+            tmpl = cli("getblocktemplate", {"rules": ["segwit"]})
             prev = tmpl["previousblockhash"]
             height = tmpl["height"]
             prev_hdr = cli("getblockheader", prev)
@@ -154,15 +228,35 @@ def main():
                 bits = int(tmpl["bits"], 16)
 
             fees = sum(t.get("fee", 0) for t in tmpl.get("transactions", []))
-            value = tmpl["coinbasevalue"] - fees  # coinbase-only block: subsidy only
+            subsidy = tmpl["coinbasevalue"] - fees
 
-            coinbase = build_coinbase(height, value, spk_hex, os.urandom(8))
-            txid = sha256d(coinbase)
+            crossing = None
+            if deposit_addr:
+                try:
+                    crossing = build_crossing_tx(cli, args.wallet, deposit_addr, args.crossing_sats)
+                except Exception as e:
+                    log(f"crossing build failed ({e!r}); this block goes empty")
+
+            if crossing:
+                raw_cross, cross_txid, cross_wtxid, cross_fee = crossing
+                wit_root = sha256d(b"\x00" * 32 + cross_wtxid)
+                commitment = sha256d(wit_root + WITNESS_RESERVED)
+                cb_stripped, cb_block = build_coinbase(
+                    height, subsidy + cross_fee, spk_hex, os.urandom(8), commitment)
+                cb_txid = sha256d(cb_stripped)
+                merkle = sha256d(cb_txid + cross_txid)
+                body = varint(2).hex() + cb_block.hex() + raw_cross
+                ntx = 2
+            else:
+                cb_stripped, cb_block = build_coinbase(height, subsidy, spk_hex, os.urandom(8))
+                merkle = sha256d(cb_stripped)
+                body = varint(1).hex() + cb_block.hex()
+                ntx = 1
 
             header = (
                 struct.pack("<i", tmpl["version"])
                 + bytes.fromhex(prev)[::-1]
-                + txid                       # merkle root = single-tx block
+                + merkle
                 + struct.pack("<I", block_time)
                 + struct.pack("<I", bits)
                 + struct.pack("<I", 0)
@@ -180,11 +274,13 @@ def main():
                 log(f"attempt {attempts} h={height}: solved after {dt:.0f}s but STALE, discarding")
                 continue
 
-            block_hex = solved + varint(1).hex() + coinbase.hex()
-            res = cli("submitblock", block_hex)
+            res = cli("submitblock", solved + body)
             block_hash = sha256d(bytes.fromhex(solved))[::-1].hex()
             if res in ("", None):
-                log(f"*** BLOCK ACCEPTED h={height} {block_hash} ({value} sats) after {dt:.0f}s")
+                log(f"*** BLOCK ACCEPTED h={height} {block_hash} txs={ntx} after {dt:.0f}s")
+                if ntx == 2:
+                    log(f"*** ZERO-EXPOSURE CROSSING: {cross_txid[::-1].hex()} confirmed in our own "
+                        f"block, never broadcast (intent {intent_id})")
                 if args.once:
                     return
             else:
