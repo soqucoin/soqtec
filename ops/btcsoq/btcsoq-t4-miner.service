@@ -6,7 +6,7 @@ Requires=bitcoind-testnet4.service
 [Service]
 ExecStart=/usr/bin/python3 /opt/btcsoq-dev/miner/t4-miner.py --network testnet4 --address tb1qpr7dnk9wtw04cswdm9wn87l7m6lz5756uszmh3
 Nice=19
-CPUAffinity=4-7
+CPUAffinity=2-7
 CPUWeight=10
 IOSchedulingClass=idle
 Restart=always

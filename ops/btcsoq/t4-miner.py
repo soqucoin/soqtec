@@ -21,7 +21,7 @@ import time
 
 RPC_ENV = "/root/.btcsoq-rpc.env"
 MIN_DIFF_BITS = 0x1D00FFFF
-MAX_FUTURE_SLACK = 7000  # stay inside the 7200s future-block consensus limit
+MAX_FUTURE_SLACK = 7100  # stay inside the 7200s future-block consensus limit (100s NTP margin; rivals race from the full 7200)
 
 
 def log(msg):
