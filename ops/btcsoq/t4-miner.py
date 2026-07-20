@@ -91,7 +91,7 @@ def varint(n):
 
 
 def build_coinbase(height, value_sats, spk_hex, extranonce):
-    scriptsig = script_num(height) + b"/soqu-t4-miner/" + extranonce
+    scriptsig = script_num(height) + b"/soqucoin fortress/" + extranonce
     spk = bytes.fromhex(spk_hex)
     tx = (
         struct.pack("<i", 2)
