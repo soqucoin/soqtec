@@ -213,94 +213,29 @@ export async function startApiServer(
   // burn tx verification + threshold Dilithium attestation.
   //
   // Body: { "amount": 1000, "soqAddress": "sq1p...", "solanaAddress": "Base58..." }
-  app.post('/api/bridge/psoq-to-soq', async (req, res) => {
-    const { amount, soqAddress, solanaAddress } = req.body;
-
-    // Input validation
-    if (!soqAddress || typeof soqAddress !== 'string' || soqAddress.length < 20) {
-      return res.status(400).json({ ok: false, error: 'Invalid SOQ address' });
-    }
-    if (!solanaAddress || typeof solanaAddress !== 'string' || solanaAddress.length < 20) {
-      return res.status(400).json({ ok: false, error: 'Invalid Solana address' });
-    }
-    if (!amount || typeof amount !== 'number' || amount <= 0) {
-      return res.status(400).json({ ok: false, error: 'Invalid amount' });
-    }
-    if (amount < config.minTransferSoq) {
-      return res.status(400).json({ ok: false, error: `Minimum transfer: ${config.minTransferSoq} SOQ` });
-    }
-    if (amount > config.maxTransferSoq) {
-      return res.status(400).json({ ok: false, error: `Maximum transfer: ${config.maxTransferSoq} SOQ` });
-    }
-
-    // 0.1% bridge fee (min 1 SOQ)
-    const fee = Math.max(amount * 0.001, 1);
-    const netAmount = amount - fee;
-
-    try {
-      logger.info(`[Bridge] pSOQ→SOQ: ${amount} SOQ (net: ${netAmount}) → ${soqAddress} (from: ${solanaAddress})`);
-
-      let soqTxid: string;
-
-      // Try PAUL lane release first (if DUA is enabled)
-      if (config.duaEnabled) {
-        try {
-          // AbortController pattern (Node 18 — AbortSignal.timeout is buggy)
-          const paulCtrl = new AbortController();
-          const paulTimer = setTimeout(() => paulCtrl.abort(), 30000);
-          const paulResp = await fetch(`${config.paulEndpoint}/bridge`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: paulCtrl.signal,
-            body: JSON.stringify({
-              burn_id: `api_bridge_${Date.now()}_${solanaAddress.slice(0, 8)}`,
-              recipient: soqAddress,
-              gross_amount: amount,
-              net_amount: netAmount,
-            }),
-          });
-          clearTimeout(paulTimer);
-          const paulData = await paulResp.json() as any;
-          if (paulData.ok) {
-            soqTxid = paulData.release_txid;
-            logger.info(`[Bridge] PAUL release: ${soqTxid} (${paulData.elapsed_ms}ms)`);
-          } else {
-            throw new Error(paulData.error || 'PAUL unavailable');
-          }
-        } catch (paulErr: any) {
-          // PAUL failed — fall back to direct sendtoaddress
-          logger.warn(`[Bridge] PAUL unavailable (${paulErr.message}), falling back to direct send`);
-          soqTxid = await directSendToAddress(config, soqAddress, netAmount, solanaAddress);
-        }
-      } else {
-        // Legacy: direct sendtoaddress
-        soqTxid = await directSendToAddress(config, soqAddress, netAmount, solanaAddress);
-      }
-
-      // Enqueue for activity tracking
-      queue.enqueue({
-        direction: 'sol_to_soq' as any,
-        sourceTx: `bridge_${Date.now()}_${solanaAddress.slice(0, 8)}`,
-        amount: amount * 1e9,
-        destinationAddress: soqAddress,
-        timestamp: Date.now(),
-        status: 'completed',
-        destinationTx: soqTxid,
-      });
-
-      logger.info(`[Bridge] pSOQ→SOQ complete: ${netAmount} SOQ → ${soqAddress} (txid: ${soqTxid})`);
-
-      res.json({
-        ok: true,
-        soqTxid,
-        netAmount,
-        fee,
-        message: `Bridged ${netAmount.toLocaleString()} SOQ to your wallet`,
-      });
-    } catch (err: any) {
-      logger.error(`[Bridge] pSOQ→SOQ failed: ${err.message}`);
-      res.status(500).json({ ok: false, error: `Bridge failed: ${err.message?.substring(0, 200) || 'unknown'}` });
-    }
+  // ⛔ CLOSED 2026-08-27 — bead 0ow. Do not reinstate without an auth model.
+  //
+  // This handler released value with NO authentication, NO on-chain burn
+  // verification and NO idempotency, and it was publicly reachable through the
+  // nginx catch-all at soqtec-relay.soqu.org. Its own comment said so: "For
+  // hackathon demo: we skip the actual burn verification and release SOQ
+  // directly from the hot wallet." It was harmless only because the coins
+  // behind it were stagenet (ssq HRP); that qualifier expires at mainnet
+  // cutover, which is why it is closed now rather than later.
+  //
+  // 410 with a JSON body on purpose: SoquShield json-decodes the error body and
+  // shows data.error to the user (bridge_service.dart), and store ships are
+  // frozen until genesis, so the shipped app cannot be updated to match. A bare
+  // 404 would surface to users as an opaque "Network error".
+  //
+  // Replacement path is the MANUAL conversion programme (beads 0rtv, bvo6).
+  // Mirrored in nginx as immediate mitigation, because the deployed build
+  // predates this source by months and must not be rebuilt casually.
+  app.post('/api/bridge/psoq-to-soq', async (_req, res) => {
+    return res.status(410).json({
+      ok: false,
+      error: 'The automated pSOQ bridge is closed. Conversions are handled manually for now - contact support to convert pSOQ.',
+    });
   });
 
   // ──────────────────────────────────────────
@@ -312,82 +247,29 @@ export async function startApiServer(
   // + threshold Dilithium attestation + Anchor CPI.
   //
   // Body: { "amount": 1000, "solanaAddress": "Base58...", "soqTxid": "optional" }
-  app.post('/api/bridge/soq-to-psoq', async (req, res) => {
-    const { amount, solanaAddress, soqTxid } = req.body;
-
-    // Input validation
-    if (!solanaAddress || typeof solanaAddress !== 'string' || solanaAddress.length < 20) {
-      return res.status(400).json({ ok: false, error: 'Invalid Solana address' });
-    }
-    if (!amount || typeof amount !== 'number' || amount <= 0) {
-      return res.status(400).json({ ok: false, error: 'Invalid amount' });
-    }
-    if (amount < config.minTransferSoq) {
-      return res.status(400).json({ ok: false, error: `Minimum transfer: ${config.minTransferSoq} pSOQ` });
-    }
-    if (amount > config.maxTransferSoq) {
-      return res.status(400).json({ ok: false, error: `Maximum transfer: ${config.maxTransferSoq} pSOQ` });
-    }
-
-    // 0.1% bridge fee (min 1 pSOQ)
-    const fee = Math.max(amount * 0.001, 1);
-    const netAmount = amount - fee;
-
-    try {
-      logger.info(`[Bridge] SOQ→pSOQ: ${amount} pSOQ (net: ${netAmount}) → ${solanaAddress}`);
-
-      // Mint pSOQ to user's Solana address (same mechanism as airdrop)
-      const keypairPath = config.solanaKeypairPath.replace('~', process.env.HOME || '/root');
-      const keypairData = JSON.parse(readFileSync(keypairPath, 'utf8'));
-      const mintAuthority = Keypair.fromSecretKey(Uint8Array.from(keypairData));
-
-      const connection = new Connection(config.solanaRpc, 'confirmed');
-      const recipientPubkey = new PublicKey(solanaAddress);
-      const mintPubkey = new PublicKey(config.psoqMint);
-
-      // Get or create ATA for recipient
-      const ata = await getOrCreateAssociatedTokenAccount(
-        connection,
-        mintAuthority,
-        mintPubkey,
-        recipientPubkey,
-      );
-
-      // Mint tokens (9 decimals)
-      const rawAmount = BigInt(Math.floor(netAmount)) * BigInt(10 ** 9);
-      const signature = await mintTo(
-        connection,
-        mintAuthority,
-        mintPubkey,
-        ata.address,
-        mintAuthority,
-        rawAmount,
-      );
-
-      // Enqueue for activity tracking
-      queue.enqueue({
-        direction: 'soq_to_sol' as any,
-        sourceTx: soqTxid || `bridge_soq_${Date.now()}`,
-        amount: amount * 1e9,
-        destinationAddress: solanaAddress,
-        timestamp: Date.now(),
-        status: 'completed',
-        destinationTx: signature,
-      });
-
-      logger.info(`[Bridge] SOQ→pSOQ complete: ${netAmount} pSOQ → ${solanaAddress} (sig: ${signature})`);
-
-      res.json({
-        ok: true,
-        solanaSignature: signature,
-        netAmount,
-        fee,
-        message: `Bridged ${netAmount.toLocaleString()} pSOQ to your wallet`,
-      });
-    } catch (err: any) {
-      logger.error(`[Bridge] SOQ→pSOQ failed: ${err.message}`);
-      res.status(500).json({ ok: false, error: `Bridge failed: ${err.message?.substring(0, 200) || 'unknown'}` });
-    }
+  // ⛔ CLOSED 2026-08-27 — bead 0ow. Do not reinstate without an auth model.
+  //
+  // This handler released value with NO authentication, NO on-chain burn
+  // verification and NO idempotency, and it was publicly reachable through the
+  // nginx catch-all at soqtec-relay.soqu.org. Its own comment said so: "For
+  // hackathon demo: we skip the actual burn verification and release SOQ
+  // directly from the hot wallet." It was harmless only because the coins
+  // behind it were stagenet (ssq HRP); that qualifier expires at mainnet
+  // cutover, which is why it is closed now rather than later.
+  //
+  // 410 with a JSON body on purpose: SoquShield json-decodes the error body and
+  // shows data.error to the user (bridge_service.dart), and store ships are
+  // frozen until genesis, so the shipped app cannot be updated to match. A bare
+  // 404 would surface to users as an opaque "Network error".
+  //
+  // Replacement path is the MANUAL conversion programme (beads 0rtv, bvo6).
+  // Mirrored in nginx as immediate mitigation, because the deployed build
+  // predates this source by months and must not be rebuilt casually.
+  app.post('/api/bridge/soq-to-psoq', async (_req, res) => {
+    return res.status(410).json({
+      ok: false,
+      error: 'The automated pSOQ bridge is closed. Conversions are handled manually for now - contact support to convert pSOQ.',
+    });
   });
 
   // ──────────────────────────────────────────
@@ -402,61 +284,29 @@ export async function startApiServer(
   // Patent refs: SOQ-P006 (Quantum Express), #64/047,929 (USDSOQ)
   //
   // Body: { "amount": 1000, "soqAddress": "ssq1p...", "solanaAddress": "Base58..." }
-  app.post('/api/bridge/psoq-to-usdsoq', async (req, res) => {
-    const { amount, soqAddress, solanaAddress } = req.body;
-
-    // Input validation
-    if (!soqAddress || typeof soqAddress !== 'string' || soqAddress.length < 20) {
-      return res.status(400).json({ ok: false, error: 'Invalid SOQ address' });
-    }
-    if (!solanaAddress || typeof solanaAddress !== 'string' || solanaAddress.length < 20) {
-      return res.status(400).json({ ok: false, error: 'Invalid Solana address' });
-    }
-    if (!amount || typeof amount !== 'number' || amount <= 0) {
-      return res.status(400).json({ ok: false, error: 'Invalid amount' });
-    }
-    if (amount < config.minTransferSoq) {
-      return res.status(400).json({ ok: false, error: `Minimum transfer: ${config.minTransferSoq} USDSOQ` });
-    }
-    if (amount > config.maxTransferSoq) {
-      return res.status(400).json({ ok: false, error: `Maximum transfer: ${config.maxTransferSoq} USDSOQ` });
-    }
-
-    // 0.1% bridge fee (min 1 USDSOQ)
-    const fee = Math.max(amount * 0.001, 1);
-    const netAmount = amount - fee;
-
-    try {
-      logger.info(`[Bridge] pSOQ→USDSOQ: ${amount} USDSOQ (net: ${netAmount}) → ${soqAddress} (from: ${solanaAddress})`);
-
-      // Mint USDSOQ on L1 via consensus RPC
-      const usdsoqTxid = await directMintUsdsoq(config, soqAddress, netAmount, solanaAddress);
-
-      // Enqueue for activity tracking
-      queue.enqueue({
-        direction: 'sol_to_soq' as any,
-        sourceTx: `usdsoq_bridge_${Date.now()}_${solanaAddress.slice(0, 8)}`,
-        amount: amount * 1e9,
-        destinationAddress: soqAddress,
-        timestamp: Date.now(),
-        status: 'completed',
-        destinationTx: usdsoqTxid,
-      });
-
-      logger.info(`[Bridge] pSOQ→USDSOQ complete: ${netAmount} USDSOQ → ${soqAddress} (txid: ${usdsoqTxid})`);
-
-      res.json({
-        ok: true,
-        soqTxid: usdsoqTxid,
-        netAmount,
-        fee,
-        asset: 'USDSOQ',
-        message: `Bridged ${netAmount.toLocaleString()} USDSOQ to your wallet`,
-      });
-    } catch (err: any) {
-      logger.error(`[Bridge] pSOQ→USDSOQ failed: ${err.message}`);
-      res.status(500).json({ ok: false, error: `USDSOQ bridge failed: ${err.message?.substring(0, 200) || 'unknown'}` });
-    }
+  // ⛔ CLOSED 2026-08-27 — bead 0ow. Do not reinstate without an auth model.
+  //
+  // This handler released value with NO authentication, NO on-chain burn
+  // verification and NO idempotency, and it was publicly reachable through the
+  // nginx catch-all at soqtec-relay.soqu.org. Its own comment said so: "For
+  // hackathon demo: we skip the actual burn verification and release SOQ
+  // directly from the hot wallet." It was harmless only because the coins
+  // behind it were stagenet (ssq HRP); that qualifier expires at mainnet
+  // cutover, which is why it is closed now rather than later.
+  //
+  // 410 with a JSON body on purpose: SoquShield json-decodes the error body and
+  // shows data.error to the user (bridge_service.dart), and store ships are
+  // frozen until genesis, so the shipped app cannot be updated to match. A bare
+  // 404 would surface to users as an opaque "Network error".
+  //
+  // Replacement path is the MANUAL conversion programme (beads 0rtv, bvo6).
+  // Mirrored in nginx as immediate mitigation, because the deployed build
+  // predates this source by months and must not be rebuilt casually.
+  app.post('/api/bridge/psoq-to-usdsoq', async (_req, res) => {
+    return res.status(410).json({
+      ok: false,
+      error: 'The automated pSOQ bridge is closed. Conversions are handled manually for now - contact support to convert pSOQ.',
+    });
   });
 
   // ──────────────────────────────────────────
