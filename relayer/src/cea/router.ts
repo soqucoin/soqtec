@@ -49,14 +49,39 @@ export interface ReleaseRecord {
   netAmountSoq: bigint;
   confidence: BurnConfidence;
   releaseTxId: string | null;
-  releaseMethod: 'paul' | 'direct' | 'pending';
+  releaseMethod: 'paul' | 'direct' | 'pending' | string;   // strategies name their own method
   detectedAt: number;
   releasedAt: number | null;
   finalizedAt: number | null;
 }
 
+/**
+ * Chain-aware release strategy. The router's built-in release path is
+ * SOQ-sendtoaddress-specific (PAUL → direct) — correct for the Solana lane,
+ * catastrophic for a raw BTC deposit. A chain registered WITH a strategy
+ * routes its releases here instead; chains without one keep the built-in
+ * path bit-for-bit.
+ */
+export interface ReleaseStrategy {
+  /** Method label recorded on ReleaseRecord (e.g. 'btcsoq-mint') */
+  readonly method: string;
+  /** Return the release txid, or null when nothing is actionable yet. */
+  release(event: NormalizedBurnEvent): Promise<string | null>;
+}
+
+export interface AdapterOptions {
+  /** Chain-specific release routing; absent = built-in PAUL→direct path */
+  strategy?: ReleaseStrategy;
+  /**
+   * managed=false: the owner controls the adapter's lifecycle (start/stop/
+   * subscribe/poll) and forwards events via ingest(). startAll() skips it.
+   */
+  managed?: boolean;
+}
+
 export class DUAEventRouter {
   private adapters: Map<ChainId, ChainEventAdapter> = new Map();
+  private adapterOpts: Map<ChainId, AdapterOptions> = new Map();
   private seenSet: Set<string> = new Set();      // burn_tx_id dedup
   private releases: ReleaseRecord[] = [];
   private config: DUARouterConfig;
@@ -71,12 +96,21 @@ export class DUAEventRouter {
    * Register a CEA for a source chain.
    * Multiple adapters can coexist (Solana + Bitcoin + Ethereum).
    */
-  registerAdapter(adapter: ChainEventAdapter): void {
+  registerAdapter(adapter: ChainEventAdapter, opts: AdapterOptions = {}): void {
     if (this.adapters.has(adapter.chainId)) {
       logger.warn(`[DUA] Replacing existing adapter for ${adapter.chainId}`);
     }
     this.adapters.set(adapter.chainId, adapter);
-    logger.info(`[DUA] Registered CEA: ${adapter.chainId}`);
+    this.adapterOpts.set(adapter.chainId, opts);
+    logger.info(`[DUA] Registered CEA: ${adapter.chainId}${opts.strategy ? ` (release strategy: ${opts.strategy.method})` : ''}${opts.managed === false ? ' [unmanaged]' : ''}`);
+  }
+
+  /**
+   * Explicit event entry point for unmanaged adapters — the owning
+   * component (e.g. BtcsoqGateway) forwards events it already received.
+   */
+  async ingest(event: NormalizedBurnEvent): Promise<void> {
+    await this.onBurnDetected(event);
   }
 
   /**
@@ -88,6 +122,10 @@ export class DUAEventRouter {
     logger.info(`[DUA] Release policy: ${this.config.releasePolicy}`);
 
     for (const [chainId, adapter] of this.adapters) {
+      if (this.adapterOpts.get(chainId)?.managed === false) {
+        logger.info(`[DUA] ${chainId}: unmanaged — owner drives lifecycle, events arrive via ingest()`);
+        continue;
+      }
       try {
         // Start the adapter
         await adapter.start();
@@ -123,6 +161,8 @@ export class DUAEventRouter {
    * Deduplicates, verifies confidence, and routes to PAUL or direct release.
    */
   private async onBurnDetected(event: NormalizedBurnEvent): Promise<void> {
+    const strategy = this.adapterOpts.get(event.chain)?.strategy;
+
     // Dedup: seen-set keyed by burn TX ID
     const dedup = `${event.chain}:${event.burnTxId}`;
     if (this.seenSet.has(dedup)) {
@@ -134,6 +174,15 @@ export class DUAEventRouter {
           existing.finalizedAt = Date.now();
         }
         logger.info(`[DUA] ${event.chain}: confidence upgrade for ${event.burnTxId.slice(0, 16)}... → ${event.confidence}`);
+
+        // Strategy chains: a pending record whose upgrade now meets policy
+        // fires its release (without this, a mempool-first event would pend
+        // forever — the strategy would never see the confirmed upgrade).
+        // Scoped to strategy chains so the built-in lane is untouched.
+        if (strategy && !this.halted && existing.releaseTxId === null &&
+            this.meetsPolicy(event.confidence)) {
+          await this.runStrategy(strategy, event, existing);
+        }
       }
       return;
     }
@@ -195,6 +244,13 @@ export class DUAEventRouter {
       finalizedAt: event.confidence === 'finalized' ? Date.now() : null,
     };
 
+    // Chain-aware routing: a registered strategy replaces the SOQ path entirely.
+    if (strategy) {
+      await this.runStrategy(strategy, event, record);
+      this.releases.push(record);
+      return;
+    }
+
     try {
       // Try PAUL first (sub-second release via pre-allocated lanes)
       const paulResult = await this.releasePAUL(event);
@@ -219,6 +275,27 @@ export class DUAEventRouter {
     }
 
     this.releases.push(record);
+  }
+
+  /** Run a chain strategy against an event, recording the outcome. */
+  private async runStrategy(
+    strategy: ReleaseStrategy,
+    event: NormalizedBurnEvent,
+    record: ReleaseRecord,
+  ): Promise<void> {
+    try {
+      const txid = await strategy.release(event);
+      if (txid) {
+        record.releaseTxId = txid;
+        record.releaseMethod = strategy.method;
+        record.releasedAt = Date.now();
+        logger.info(`[DUA] ${event.chain}: ${strategy.method} release ${txid.slice(0, 16)}...`);
+      }
+      // null = nothing actionable yet (strategy owns its own retries);
+      // the record stays 'pending' for the audit trail.
+    } catch (err: any) {
+      logger.error(`[DUA] ${event.chain}: strategy ${strategy.method} failed for ${event.burnTxId.slice(0, 16)}...: ${err.message}`);
+    }
   }
 
   /** Release via PAUL lane manager (sub-second) */
@@ -349,6 +426,7 @@ export class DUAEventRouter {
       clearInterval(timer);
     }
     for (const [chainId, adapter] of this.adapters) {
+      if (this.adapterOpts.get(chainId)?.managed === false) continue;   // owner stops it
       await adapter.stop();
     }
     logger.info('[DUA] All adapters stopped');

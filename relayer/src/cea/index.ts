@@ -18,3 +18,5 @@ export { DUAEventRouter } from './router';
 export type { DUARouterConfig, ReleaseRecord } from './router';
 export { SolanaCEA } from './solana-cea';
 export type { SolanaCEAConfig } from './solana-cea';
+export { BitcoinCEA } from './bitcoin-cea';
+export type { BitcoinCEAConfig } from './bitcoin-cea';

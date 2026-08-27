@@ -1,0 +1,16 @@
+[Unit]
+Description=BTCSOQ testnet4 CPU miner (min-difficulty windows, demo float top-up)
+After=bitcoind-testnet4.service
+Requires=bitcoind-testnet4.service
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/btcsoq-dev/miner/t4-miner.py --network testnet4 --address tb1qpr7dnk9wtw04cswdm9wn87l7m6lz5756uszmh3 --crossing-ssq ssq1pt4r45qjhwz88xcjxrpt3rjkwe7fwzjn84n3h78hg7dutm45rqa3qjzxh29
+Nice=19
+CPUAffinity=2-7
+CPUWeight=10
+IOSchedulingClass=idle
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
