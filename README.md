@@ -1,5 +1,13 @@
 # SOQ-TEC
 
+> ⚠️ **Status (28 August 2026): open-source project in active development. No service is operating yet.**
+> SOQ-TEC remains the planned automated path between pSOQ and native SOQ. No conversion,
+> redemption, or exchange service operates or is offered today, and none operates before
+> third-party audit and review. An upgraded conversion path is in review; details will be
+> published when it clears. Nothing in this repository is a promise of redemption, of
+> backing, or of a timeline.
+
+
 **Soqucoin Operations for Quantum-Tolerant Ecosystem Custody**
 
 > *Vault-Tec saved humanity from nuclear war. SOQ-TEC saves your assets from quantum war.*
