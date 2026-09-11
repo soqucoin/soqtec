@@ -65,7 +65,7 @@ const BOOT_LINES = [
     { text: '> Connecting to SOQ-TEC Relayer...', delay: 120 },
     { text: '  GATEWAY PROGRAM: 9pCJxjVF...w36', delay: 60 },
     { text: '  THRESHOLD: 2-of-3 MULTISIG', delay: 50 },
-    { text: '  STATUS:  OPERATIONAL', delay: 80 },
+    { text: '  STATUS:  TEST DATA (2026 demonstration)', delay: 80 },
     { text: '', delay: 80 },
     { text: '> Checking vault custody status...', delay: 100 },
     { text: '  SIGNATURE:  ML-DSA-44 (FIPS 204)', delay: 50 },
@@ -89,12 +89,9 @@ const BOOT_LINES = [
     { text: '> "Prepared for the Quantum Future."', delay: 100 },
     { text: '', delay: 200 },
     { text: '', delay: 100 },
-    { text: '> Initializing USDSOQ Stablecoin Module...', delay: 80 },
-    { text: '  TYPE:       Quantum-safe stablecoin', delay: 50 },
-    { text: '  COLLATERAL: SOQ-backed (native L1)', delay: 50 },
-    { text: '  COMPLIANCE: GENIUS Act · MiCA · NYDFS', delay: 50 },
-    { text: '  GOVERNANCE: 4/7 threshold authority', delay: 50 },
-    { text: '  STATUS:  USDSOQ MODULE ONLINE', delay: 80 },
+    { text: '> USDSOQ Stablecoin Module...', delay: 80 },
+    { text: '  TYPE:       Stablecoin issuance technology for licensed issuers', delay: 50 },
+    { text: '  STATUS:  NOT ACTIVE ON MAINNET', delay: 80 },
     { text: '', delay: 100 },
     { text: '> Loading dashboard interface...', delay: 300 },
 ];
@@ -229,7 +226,7 @@ class Dashboard {
         const bs = document.getElementById('hero-bridge');
         const rs = document.getElementById('hero-relay-state');
         const bstat = document.getElementById('hero-bridge-status');
-        if (bs) bs.textContent = this.relayerConnected ? 'OPERATIONAL' : 'STANDBY';
+        if (bs) bs.textContent = this.relayerConnected ? 'DEMO RELAY' : 'TEST DATA';
         if (rs) rs.textContent = this.relayerConnected ? 'ONLINE' : 'STANDBY';
         if (bstat) {
             bstat.className = this.relayerConnected
@@ -717,7 +714,7 @@ class Dashboard {
             { type: 'info', text: '[INFO] Vault Dilithium signature verification: PASS' },
             { type: 'system', text: '[SYSTEM] Heartbeat — all systems nominal' },
             { type: 'warn', text: '[THREAT] Ed25519 harvesting risk — HNDL active' },
-            { type: 'info', text: '[INFO] Gateway attestation engine: OPERATIONAL' },
+            { type: 'info', text: '[DEMO] Gateway attestation engine: demonstration build' },
             { type: 'highlight', text: '[SOQ-TEC] Vault custody: ML-DSA-44 ACTIVE' },
             { type: 'system', text: '[SYSTEM] Proof of reserves check: PASS' },
             { type: 'highlight', text: '[SOQ-TEC] QUANTUM EXPRESS: Optimistic relay enabled' },
@@ -729,10 +726,7 @@ class Dashboard {
             { type: 'system', text: '[SYSTEM] No pending gateway transactions' },
             { type: 'highlight', text: '[SOQ-TEC] Revolving Vault: XMSS-Lite (16 sigs/vault)' },
             { type: 'info', text: '[INFO] Direct-mint-to-vault: Zero Ed25519 exposure' },
-            { type: 'highlight', text: '[USDSOQ] Stablecoin module: ON-PEG — $1.0000' },
-            { type: 'system', text: '[USDSOQ] GENIUS Act compliance check: PASS' },
-            { type: 'info', text: '[USDSOQ] Governance: 4/7 threshold authority active' },
-            { type: 'highlight', text: '[USDSOQ] Backing ratio: 1.00:1 — fully collateralized' },
+            { type: 'highlight', text: '[USDSOQ] Issuance technology for licensed issuers; not active on mainnet' },
         ];
 
         let idx = 0;

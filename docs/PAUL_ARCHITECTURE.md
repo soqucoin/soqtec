@@ -364,7 +364,7 @@ Why this is unique:
 
 ---
 
-## Questions for Casey
+## Open questions (April 2026)
 
 1. ~~**Denomination floor**: What's the smallest bridge amount we want to support?~~ **Answered: 10 SOQ minimum (lane_10)**
 2. ~~**Lane funding source**: Should PAUL lanes be funded from the hot wallet directly, or separately from cold?~~ **Answered: Hot wallet directly, auto-refill from cold via 6h cron**
@@ -376,4 +376,3 @@ Why this is unique:
 ---
 
 *Last updated: April 26, 2026 — Relayer v0.2.0 (DUA/CEA), 31+ releases, Block 51,200+*
-*"Irish don't quit."*

@@ -1,6 +1,10 @@
 # SOQ-TEC Bridge & Vault — Canonical Address Registry
 
-> **Status:** AUTHORITATIVE — Updated 2026-05-10
+> Solana devnet program and test-token addresses from the 2026 hackathon demonstration. Test tokens only,
+> no value. The pSOQ mint listed as ACTIVE below is a devnet test token and is not the pSOQ token on Solana
+> mainnet. Soqucoin Labs operates no bridge, vault or relayer for the public.
+
+> **Status:** Devnet demonstration record, updated 2026-05-10
 > **Purpose:** Single source of truth for ALL on-chain addresses used in the SOQ-TEC bridge ecosystem.
 > **Rule:** If a service uses an address not in this registry, it's WRONG. Update this file, not the service.
 

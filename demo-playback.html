@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SOQ-TEC Gateway Demo — Colosseum Frontier Hackathon 2026</title>
+<title>SOQ-TEC demonstration recording, Colosseum Frontier 2026 (test networks)</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 *{margin:0;padding:0;box-sizing:border-box}
@@ -17,7 +17,7 @@ position:fixed;top:0;left:0;right:0;z-index:150;font-size:11px;color:#3d5c42;let
 .progress-bar{position:fixed;top:33px;left:0;right:0;height:1px;background:#111;z-index:151}
 .progress-fill{height:100%;background:#4a9e5a;width:0%;transition:width 0.3s}
 
-#terminal{padding:48px 24px 40px;height:100vh;overflow-y:auto;scroll-behavior:smooth}
+#terminal{padding:96px 24px 40px;height:100vh;overflow-y:auto;scroll-behavior:smooth}
 #terminal::-webkit-scrollbar{width:3px}
 #terminal::-webkit-scrollbar-track{background:transparent}
 #terminal::-webkit-scrollbar-thumb{background:#1a2a1e;border-radius:2px}
@@ -43,6 +43,8 @@ animation:blink 1s step-end infinite;vertical-align:text-bottom;margin-left:2px}
 border-top:1px solid #1a2a1e;padding:6px 24px;display:flex;justify-content:space-between;
 align-items:center;z-index:150;font-size:11px;color:#3d5c42;letter-spacing:1px}
 #pause-label{color:#b0a050;display:none}
+#notice{position:fixed;top:34px;left:0;right:0;z-index:149;background:#0a0c10;border-bottom:1px solid #1a2a1e;
+padding:6px 24px;font-size:11px;line-height:1.5;color:#c8ccd0}
 </style>
 </head>
 <body>
@@ -53,6 +55,7 @@ align-items:center;z-index:150;font-size:11px;color:#3d5c42;letter-spacing:1px}
   <span class="clock" id="clock">00:00</span>
 </div>
 <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+<div id="notice">Recording of the Colosseum Frontier 2026 hackathon demonstration (May 2026). Test networks only: Solana devnet and Soqucoin stagenet. Soqucoin Labs operates no bridge, custody, stablecoin issuance or redemption service. USDSOQ is stablecoin issuance technology for licensed issuers; it is not active on mainnet and Labs is not an issuer.</div>
 
 <div id="terminal"></div>
 
@@ -96,7 +99,8 @@ const _ = (c,t,w) => ({c,t,w:w||0});
 const lines = [
 _('d','$ soqtec demo --verify',1500),
 _('',''),
-_('t','SOQ-TEC: Quantum-Safe Gateway for Solana'),
+_('w','Recording of the May 2026 hackathon demonstration. Test networks and test tokens only.'),
+_('t','SOQ-TEC: post-quantum custody and settlement software, demonstrated on test networks'),
 _('t','Every claim is backed by a verifiable Solana devnet transaction.'),
 _('',''),
 _('d','Patents:   #64/035,857 (XMSS-Lite) + #64/035,873 (Quantum Express)'),
@@ -223,7 +227,7 @@ _('d','  A quantum adversary recording today\'s transactions could forge signatu
 _('d','  in 5–10 years and drain any wallet that ever signed on-chain.'),
 _('','',3500),
 _('d','  The burn makes the Solana-side exposure disposable — once burned,'),
-_('d','  there is no Ed25519 key left to attack. The value migrates to L1'),
+_('d','  there is no Ed25519 key left to attack. The release lands on L1'),
 _('d','  where it is protected by CRYSTALS-Dilithium (ML-DSA-44, FIPS 204).'),
 _('','',3000),
 _('t','Submitting burn transaction to Solana Devnet...'),
@@ -254,7 +258,6 @@ _('d','  The L1 release is signed with ML-DSA-44 (CRYSTALS-Dilithium).'),
 _('d','  This is the same NIST FIPS 204 standard the US government'),
 _('d','  mandates for post-quantum digital signatures by 2035.'),
 _('','',3000),
-_('f','FEE: 100 pSOQ burned -> 99.9 SOQ released (0.1% gateway fee)'),
 _('t','[OK] SOQ released on L1 — signed with ML-DSA-44 (FIPS 204)'),
 _('d','L1 txid: 437cc78cf6b1053aa1ff3a24112fa97d80c8da500db06cd46f456f3f4043fbf6'),
 _('l','https://xplorer.soqu.org/tx/437cc78cf6b1053aa1ff3a24112fa97d80c8da500db06cd46f456f3f4043fbf6'),
@@ -264,33 +267,29 @@ _('','',4000),
 
 
 _('w','────────────────────────────────────────'),
-_('t','[11] Live releases from production relayer'),
+_('t','[11] Releases recorded during the demonstration'),
 _('w','────────────────────────────────────────'),
 _('',''),
-_('t','These are real releases from the live SOQ-TEC relayer — not simulated:'),
+_('t','Three further test releases recorded on Soqucoin stagenet during the demonstration:'),
 _('','',2000),
 _('t','[OK] 10 pSOQ burned (4oeod3Mi99Yy...) -> 10 SOQ via PAUL'),
 _('t','[OK] 10 pSOQ burned (2p61vobk3Rub...) -> 10 SOQ via PAUL'),
 _('t','[OK] 10 pSOQ burned (B5WWsG6vEfDp...) -> 10 SOQ via PAUL'),
-_('','',2000),
-_('l','https://soqtec-relay-proxy.research-c26.workers.dev/api/dua/releases'),
-_('d','^ Verify live — returns real-time release data'),
 _('','',3000),
 
 _('w','────────────────────────────────────────'),
 _('t','[12] USDSOQ — Quantum-safe stablecoin on L1'),
 _('w','────────────────────────────────────────'),
 _('',''),
-_('t','This is what we believe is a world-first:'),
-_('t','A quantum-safe stablecoin, running live on stagenet, right now.'),
+_('t','USDSOQ: stablecoin issuance technology built into the Soqucoin protocol.'),
+_('t','Demonstrated on Soqucoin stagenet in May 2026 with test coins.'),
 _('','',3000),
-_('d','  SOQ-TEC bridges pSOQ directly into USDSOQ on our L1 chain.'),
 _('d','  USDSOQ is not a smart contract token. It is not an ERC-20.'),
 _('d','  It is a native UTXO asset type enforced at the consensus layer.'),
 _('','',3000),
 _('t','  Every full node on the network validates USDSOQ issuance.'),
 _('t','  Minting requires OP_5 authority opcodes — hardcoded in the protocol.'),
-_('t','  There is no admin key to steal. No contract to exploit. No rug pull.'),
+_('t','  Issuance authority is an M-of-N keyset enforced at the consensus layer.'),
 _('','',3500),
 _('d','  Compare this to $280 billion in stablecoins on other chains:'),
 _('d','  USDC on Ethereum — ERC-20, Ed25519-signed approvals, quantum-exposed.'),
@@ -298,8 +297,8 @@ _('d','  USDT on Tron — smart contract, classical signatures, quantum-exposed.
 _('d','  USDSOQ — UTXO-native, ML-DSA-44 signatures, quantum-safe end-to-end.'),
 _('','',4000),
 _('t','Patent #64/047,929 — Quantum-Safe Stablecoin Issuance'),
-_('t','We are not aware of any other project at this stage with a working'),
-_('t','quantum-safe stablecoin bridged from Solana. This is live today.'),
+_('t','USDSOQ is issuance technology for licensed issuers. It is not active on'),
+_('t','mainnet and Soqucoin Labs is not an issuer.'),
 _('','',4000),
 
 
@@ -316,38 +315,37 @@ _('w','────────────────────────�
 _('t','[13] Privacy layer — LatticeFold confidential transactions'),
 _('w','────────────────────────────────────────'),
 _('',''),
-_('t','One more thing running live on our stagenet:'),
+_('t','One more thing shown on stagenet during the demonstration:'),
 _('t','LatticeFold — lattice-based confidential transactions.'),
 _('','',2500),
 _('d','  Transaction amounts and balances are hidden using zero-knowledge proofs.'),
 _('d','  Unlike Bulletproofs (used by Monero), LatticeFold is quantum-safe.'),
-_('d','  This is BIP9-gated and active on our stagenet right now.'),
+_('d','  It was a BIP9-gated stagenet feature at the time of the demonstration and has since been retired.'),
 _('','',3000),
-_('t','  Full post-quantum privacy: quantum-safe signatures + quantum-safe ZK proofs.'),
-_('t','  No other L1 has both running simultaneously at this stage.'),
+_('t','  Design goal: quantum-safe signatures + quantum-safe ZK proofs.'),
 _('','',3500),
 
 // ── PHASE 3 ──────────────────────────────
 _('',''),
 _('w','================================================================'),
-_('t','PHASE 3 — REVENUE MODEL'),
+_('t','PHASE 3 — LICENSING MODEL'),
 _('d','Why SOQ-TEC matters for Solana'),
 _('w','================================================================'),
 _('','',2500),
 
-_('t','Gateway fee:   0.1% per transfer (configurable per-lane)'),
-_('t','Fee example:   1,000,000 pSOQ -> 999,000 SOQ released, 1,000 SOQ fee'),
+_('t','Revenue:       software licensing to custodians, exchanges and issuers'),
+_('t','               who operate SOQ-TEC under their own licences'),
 _('',''),
 _('t','Market:'),
 _('t','  $280B+ stablecoins vulnerable to harvest-now-decrypt-later'),
 _('t','  $180B+ Solana TVL exposed via Ed25519 signatures'),
-_('t','  SOQ-TEC is the migration path to quantum-safe custody'),
+_('t','  SOQ-TEC is custody and settlement software for licensed custodians'),
 _('',''),
-_('t','Competitive edge:'),
-_('t','  Only multi-use quantum vault on Solana (16–1,024 sigs)'),
-_('t','  Only SPL token custody (not SOL-only)'),
+_('t','Design points:'),
+_('t','  Multi-use quantum vault on Solana (16–1,024 sigs)'),
+_('t','  SPL token support in addition to SOL'),
 _('t','  Direct-mint-to-vault eliminates the Ed25519 gap'),
-_('t','  Two patents filed, 21 claims, all proven on-chain'),
+_('t','  Two patents filed, 21 claims, all exercised on devnet'),
 _('','',5000),
 
 // ── VERIFICATION ──────────────────────────
@@ -364,20 +362,14 @@ _('d','^ Vault Program (XMSS-Lite)'),
 _('l','https://explorer.solana.com/address/7TCU5SnLR7ARRAd8aUdoAFgw9zvCvzwdphm7TjUT6s46?cluster=devnet'),
 _('d','^ pSOQ Mint'),
 _('',''),
-_('t','Live infrastructure:'),
-_('l','https://soqtec.soqu.org'),
-_('d','^ SOQ-TEC Terminal — live gateway dashboard'),
+_('t','Related sites:'),
 _('l','https://xplorer.soqu.org'),
 _('d','^ Soqucoin L1 Explorer'),
-_('l','https://soqtec-relay-proxy.research-c26.workers.dev/api/status'),
-_('d','^ Live relayer API'),
 _('l','https://github.com/soqucoin/soqtec'),
 _('d','^ Source code'),
 _('',''),
-_('t','Team:'),
-_('t','Casey Wilson — 25-year USAF cyber veteran, CEO/Founder'),
 _('t','Soqucoin Labs Inc. | SDVOSB | New York, NY'),
-_('t','Halborn Security — audited, all findings remediated'),
+_('t','Halborn Security audited the Soqucoin L1 (2026). The bridge program and relayer are unaudited.'),
 _('','',3000),
 _('',''),
 _('t','SOQ-TEC: Making Solana quantum-safe. Verify everything.'),

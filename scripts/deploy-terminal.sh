@@ -1,25 +1,9 @@
 #!/usr/bin/env bash
-# SOQ-TEC — Deploy Terminal Dashboard to Cloudflare Pages
+# SOQ-TEC terminal deploy script: retired.
 #
-# Usage:
-#   ./scripts/deploy-terminal.sh [commit-message]
-#
-# Deploys the static terminal dashboard to soqtec.soqu.org via wrangler.
+# The Cloudflare Pages project behind soqtec.soqu.org is deployed from the ops
+# repository, not from this repository root. This script refuses to run so that
+# a re-run cannot republish the repository root over the live site.
 
-set -euo pipefail
-
-COMMIT_MSG="${1:-SOQ-TEC Terminal update}"
-PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-
-echo "Deploying SOQ-TEC Terminal..."
-echo "Project: $PROJECT_DIR"
-
-# Deploy to Cloudflare Pages
-wrangler pages deploy "$PROJECT_DIR" \
-  --project-name soqtec \
-  --commit-message "$COMMIT_MSG" \
-  --commit-dirty=true
-
-echo ""
-echo "✅ Deployed to soqtec.soqu.org"
-echo "   Also available at: soqtec.pages.dev"
+echo "retired: the SOQ-TEC terminal deploy is retired; the site is deployed from the ops repository." >&2
+exit 1
