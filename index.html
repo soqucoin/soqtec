@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SOQ-TEC Terminal v1.4 | Quantum-Tolerant Ecosystem Custody</title>
-    <meta name="description" content="SOQ-TEC: Soqucoin Operations for Quantum-Tolerant Ecosystem Custody. The first quantum-safe cross-chain gateway with XMSS-Lite revolving vaults and Quantum Express optimistic routing. Prepared for the Quantum Future.">
+    <title>SOQ-TEC Demonstration Terminal | 2026 hackathon, test networks</title>
+    <meta name="description" content="SOQ-TEC demonstration terminal (2026 hackathon, test networks). Post-quantum custody and cross-chain settlement software for licensed custodians, exchanges and issuers. Soqucoin Labs operates no bridge, custody or stablecoin service.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -35,7 +35,7 @@
             </div>
             <div class="header-center">
                 <span class="header-status" id="system-status">●</span>
-                <span class="header-status-text">SYSTEM ONLINE</span>
+                <span class="header-status-text">TEST DATA</span>
             </div>
             <div class="header-right">
                 <span class="header-time" id="header-time">00:00:00</span>
@@ -47,6 +47,11 @@
              LAYER 1 — THE HOOK (Always Visible)
              Primary vital signs. Brightest phosphor. Bloom.
              ═══════════════════════════════════════════════════ -->
+        <div class="demo-notice" role="note" style="margin: 0 16px 8px; padding: 8px 12px; border: 1px solid currentColor; font-size: 0.85em; line-height: 1.4;">
+            Demonstration dashboard from the Colosseum Frontier 2026 hackathon. Test networks only: Solana devnet and
+            Soqucoin stagenet. Every figure shown is test data. Soqucoin Labs operates no bridge, custody, stablecoin
+            issuance or redemption service. USDSOQ is not active on mainnet.
+        </div>
         <section class="primary-status">
             <div class="vital vital--peg">
                 <div class="vital__bracket vital__bracket--tl"></div>
@@ -54,8 +59,8 @@
                 <div class="vital__bracket vital__bracket--bl"></div>
                 <div class="vital__bracket vital__bracket--br"></div>
                 <div class="vital__label">USDSOQ PEG</div>
-                <div class="vital__value vital__value--bloom" id="hero-peg">$1.0000</div>
-                <div class="vital__badge vital__badge--online" id="hero-peg-status">ON-PEG</div>
+                <div class="vital__value vital__value--bloom" id="hero-peg">N/A</div>
+                <div class="vital__badge vital__badge--online" id="hero-peg-status">NOT ACTIVE</div>
             </div>
             <div class="vital vital--bridge">
                 <div class="vital__bracket vital__bracket--tl"></div>
@@ -63,7 +68,7 @@
                 <div class="vital__bracket vital__bracket--bl"></div>
                 <div class="vital__bracket vital__bracket--br"></div>
                 <div class="vital__label">GATEWAY STATUS</div>
-                <div class="vital__value vital__value--bloom" id="hero-bridge">OPERATIONAL</div>
+                <div class="vital__value vital__value--bloom" id="hero-bridge">TEST DATA</div>
                 <div class="vital__badge vital__badge--online" id="hero-bridge-status">● RELAY <span id="hero-relay-state">STANDBY</span></div>
             </div>
             <div class="vital vital--vault">
@@ -140,7 +145,7 @@
                     <div class="panel-header">
                         <span class="panel-icon">◈</span>
                         <span class="panel-title">SOQ-TEC VAULT STATUS</span>
-                        <span class="panel-status online">ONLINE</span>
+                        <span class="panel-status online">TEST DATA</span>
                     </div>
                     <div class="panel-body">
                         <div class="stat-row">
@@ -149,7 +154,7 @@
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">BACKING RATIO</span>
-                            <span class="stat-value layer1" id="backing-ratio">1:1</span>
+                            <span class="stat-value layer1" id="backing-ratio">N/A</span>
                         </div>
                         <div class="stat-row">
                             <span class="stat-label">TOTAL BRIDGED</span>
@@ -273,14 +278,14 @@
                     <div class="panel-header">
                         <span class="panel-icon">◇</span>
                         <span class="panel-title">SECURITY OVERVIEW</span>
-                        <span class="panel-status online">HARDENED</span>
+                        <span class="panel-status online">STATUS</span>
                     </div>
                     <div class="panel-body">
                         <div class="security-grid">
                             <div class="security-item active">
                                 <div class="security-icon">✓</div>
                                 <div class="security-text">Halborn Audit</div>
-                                <div class="security-detail">6/6 Remediated</div>
+                                <div class="security-detail">Soqucoin L1 (2026)</div>
                             </div>
                             <div class="security-item active">
                                 <div class="security-icon">✓</div>
@@ -299,13 +304,13 @@
                             </div>
                             <div class="security-item active">
                                 <div class="security-icon">✓</div>
-                                <div class="security-text">Bridge Escrow</div>
-                                <div class="security-detail">Devnet LIVE</div>
+                                <div class="security-text">Bridge Program</div>
+                                <div class="security-detail">Devnet demonstration, unaudited</div>
                             </div>
                             <div class="security-item active">
                                 <div class="security-icon">✓</div>
-                                <div class="security-text">Relayer Network</div>
-                                <div class="security-detail">OPERATIONAL</div>
+                                <div class="security-text">Relayer</div>
+                                <div class="security-detail">Demonstration, unaudited</div>
                             </div>
                         </div>
                     </div>
@@ -331,15 +336,9 @@
                     </div>
                     <div class="panel-body">
                         <div class="activity-log" id="activity-log">
-                            <div class="log-entry system">[SYSTEM] SOQ-TEC Gateway v1.4 initializing...</div>
-                            <div class="log-entry system">[SYSTEM] Gateway Program: 9pCJxj...w36 — DEPLOYED</div>
-                            <div class="log-entry system">[SYSTEM] Connecting to relayer service...</div>
-                            <div class="log-entry info">[INFO] Solana devnet: gateway program LIVE</div>
-
-                            <div class="log-entry highlight">[SOQ-TEC] DUA/CEA pipeline: ACTIVE</div>
-
-                            <div class="log-entry highlight">[SOQ-TEC] Gateway Relayer: soqtec-relay.soqu.org LIVE</div>
-                            <div class="log-entry highlight">[SOQ-TEC] Gateway: 2-of-3 threshold signing READY</div>
+                            <div class="log-entry system">[DEMO] SOQ-TEC demonstration terminal, test data only</div>
+                            <div class="log-entry system">[DEMO] Gateway Program: 9pCJxj...w36 (Solana devnet test deployment)</div>
+                            <div class="log-entry info">[DEMO] DUA/CEA pipeline: 2026 hackathon demonstration</div>
                         </div>
                     </div>
                 </div>
@@ -410,7 +409,7 @@
                             </div>
                             <div class="qe-stat">
                                 <span class="qe-stat-label">STATUS</span>
-                                <span class="qe-stat-value qe-stat--live" id="qe-pipe-status">● LIVE</span>
+                                <span class="qe-stat-value qe-stat--live" id="qe-pipe-status">TEST DATA</span>
                             </div>
                         </div>
                     </div>
@@ -432,55 +431,17 @@
                     <div class="panel-header">
                         <span class="panel-icon">◈</span>
                         <span class="panel-title">USDSOQ STABLECOIN</span>
-                        <span class="panel-status online" id="usdsoq-status">ON-PEG</span>
+                        <span class="panel-status online" id="usdsoq-status">NOT ACTIVE</span>
                     </div>
                     <div class="panel-body">
-                        <div class="usdsoq-peg-display">
-                            <div class="peg-rate">
-                                <span class="peg-symbol">$</span>
-                                <span class="peg-value" id="usdsoq-peg">1.0000</span>
-                            </div>
-                            <div class="peg-label">USD PEG RATE</div>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">CIRCULATING SUPPLY</span>
-                            <span class="stat-value layer1" id="usdsoq-supply">0 USDSOQ</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">TOTAL MINTED</span>
-                            <span class="stat-value layer1" id="usdsoq-minted">0 USDSOQ</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">TOTAL BURNED</span>
-                            <span class="stat-value layer1" id="usdsoq-burned">0 USDSOQ</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">BACKING RATIO</span>
-                            <span class="stat-value layer1" id="usdsoq-backing">1.00:1</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">GOVERNANCE</span>
-                            <span class="stat-value layer2" id="usdsoq-signers">4/7 SIGNERS</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">COLLATERAL</span>
-                            <span class="stat-value layer3">SOQ-Backed (Native L1)</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">COMPLIANCE</span>
-                            <span class="stat-value layer3">GENIUS Act · MiCA · NYDFS</span>
-                        </div>
+                        <p class="usdsoq-note" style="line-height: 1.5;">
+                            USDSOQ: stablecoin issuance technology built into the Soqucoin protocol for licensed
+                            issuers. Soqucoin Labs is not an issuer and holds no reserves. USDSOQ is not active on
+                            mainnet.
+                        </p>
                         <div class="stat-row">
                             <span class="stat-label">SIGNATURE</span>
                             <span class="stat-value layer3">ML-DSA-44 (FIPS 204)</span>
-                        </div>
-                        <div class="usdsoq-badge">
-                            <span class="badge-icon">◆</span>
-                            <span class="badge-text">GENIUS ACT COMPLIANT · QUANTUM-SAFE STABLECOIN</span>
-                        </div>
-                        <div class="usdsoq-ops" id="usdsoq-ops">
-                            <div class="ops-header">RECENT OPERATIONS</div>
-                            <div class="ops-empty">No operations yet — awaiting mainnet</div>
                         </div>
                     </div>
                 </div>
@@ -494,9 +455,13 @@
                     <div class="panel-header">
                         <span class="panel-icon">◈</span>
                         <span class="panel-title">PROOF OF RESERVES</span>
-                        <span class="panel-status online" id="reserves-status">LIVE</span>
+                        <span class="panel-status online" id="reserves-status">TEST DATA</span>
                     </div>
                     <div class="panel-body">
+                        <div class="stat-row">
+                            <span class="stat-label">SCOPE</span>
+                            <span class="stat-value layer2">DEMONSTRATION, TEST NETWORK DATA</span>
+                        </div>
                         <div class="reserves-visual">
                             <div class="reserve-row">
                                 <span class="reserve-label">SOQ LOCKED (L1)</span>
@@ -516,11 +481,11 @@
                         <div class="reserve-attestation">
                             <div class="stat-row">
                                 <span class="stat-label">LAST ATTESTATION</span>
-                                <span class="stat-value layer2" id="last-attestation">AWAITING LAUNCH</span>
+                                <span class="stat-value layer2" id="last-attestation">NONE (TEST NETWORK)</span>
                             </div>
                             <div class="stat-row">
                                 <span class="stat-label">ATTESTATION SIG</span>
-                                <span class="stat-value layer3">Dilithium-3 (NIST FIPS 204)</span>
+                                <span class="stat-value layer3">ML-DSA-44 (FIPS 204)</span>
                             </div>
                             <div class="stat-row">
                                 <span class="stat-label">VALIDATOR QUORUM</span>
@@ -535,7 +500,7 @@
         <!-- Footer -->
         <footer class="terminal-footer">
             <div class="footer-left">
-                <span class="footer-item">SOQ-TEC v1.4.0 | Soqucoin Labs Inc.</span>
+                <span class="footer-item">SOQ-TEC demonstration terminal, software by Soqucoin Labs Inc.</span>
             </div>
             <div class="footer-center">
                 <span class="footer-item">◆ COLOSSEUM FRONTIER HACKATHON 2026 ◆</span>

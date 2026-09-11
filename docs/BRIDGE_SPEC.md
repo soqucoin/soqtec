@@ -1,12 +1,10 @@
 # SOQ-TEC Bridge Protocol Specification
 
-> ⚠️ **Status (28 August 2026): open-source project in active development. No service is operating yet.**
-> SOQ-TEC remains the planned automated path between pSOQ and native SOQ. No conversion,
-> redemption, or exchange service operates or is offered today, and none operates before
-> third-party audit and review. An upgraded conversion path is in review; details will be
-> published when it clears. Nothing in this repository is a promise of redemption, of
-> backing, or of a timeline.
-
+> This specification describes the protocol the software implements. "The bridge", "the relayer", "the
+> vault", "admin" and "protocol treasury" name software roles and components. They are not services that
+> Soqucoin Labs operates. The fee schedule in section 10 is a configurable parameter of the software; Labs
+> charges no transfer fee and operates no bridge. The token mapping and the proof-of-reserves design were
+> exercised with test tokens on test networks only. The pSOQ to SOQ path is in legal review.
 
 > Version 1.0.0 — Colosseum Frontier Hackathon 2026
 
@@ -14,15 +12,13 @@
 
 ## 1. Overview
 
-The SOQ-TEC Bridge enables bidirectional asset transfers between Solana and Soqucoin L1. Unlike every other cross-chain bridge, **the entire attestation chain is quantum-secure** — relayer validators sign with NIST FIPS 204 ML-DSA-44 (Dilithium), not Ed25519 or ECDSA.
+The SOQ-TEC Bridge software moves assets in both directions between Solana and Soqucoin L1. **The entire attestation chain is quantum-secure** — relayer validators sign with NIST FIPS 204 ML-DSA-44 (Dilithium), not Ed25519 or ECDSA.
 
 This means an attacker with a cryptographically relevant quantum computer (CRQC) **cannot forge bridge attestations**, even if they break every Ed25519 key on Solana. The trust chain — from attestation signature to vault custody — uses only post-quantum cryptography.
 
 ### Token Mapping
 
-| Solana | Soqucoin | Ratio |
-|--------|----------|-------|
-| pSOQ (SPL token) | SOQ (native coin) | 1:1 |
+The software maps one SPL token on Solana to the native coin on Soqucoin L1. pSOQ is a token on Solana. The path from pSOQ to SOQ is in legal review and details will be published when it is complete.
 
 ### Core Differentiator
 
@@ -41,7 +37,7 @@ While cross-chain infrastructure has historically suffered from smart contract v
 
 ## 2. Bridge Flow: Solana → Soqucoin (Redemption)
 
-**Purpose**: User moves value from Solana to quantum-safe custody on Soqucoin L1.
+**Purpose**: A user of a licensed operator's deployment moves value from Solana to that operator's vault on Soqucoin L1.
 
 ```
 User                    Solana Program           Relayer Network          Soqucoin L1
@@ -90,7 +86,7 @@ User                    Solana Program           Relayer Network          Soquco
 4. **Each validator signs an attestation with their Dilithium key** (not Ed25519)
 5. **Attestation aggregator** collects 3-of-5 Dilithium signatures
 6. **Release transaction** constructed for Soqucoin L1 with 3-of-5 Dilithium multisig
-7. **Optimistic instant release**: SOQ is released to the user's Dilithium address upon burn detection (Quantum Express). Relayer assumes physical burn irreversibility — no pre-release cryptographic verification required. 240-block maturity enforcement is a planned mainnet upgrade.
+7. **Release**: Release follows burn confirmation and attestation. The demonstration build released on detection without pre-release verification; that mode is not suitable for production and is not part of the specification.
 
 ### Validation Rules (Per Validator)
 
@@ -105,7 +101,7 @@ User                    Solana Program           Relayer Network          Soquco
 
 ## 3. Bridge Flow: Soqucoin → Solana (Deposit)
 
-**Purpose**: User moves value from Soqucoin back to Solana for trading/DeFi.
+**Purpose**: A user of a licensed operator's deployment moves value from Soqucoin back to Solana.
 
 ```
 User                    Soqucoin L1              Relayer Network          Solana Program
@@ -143,7 +139,7 @@ User                    Soqucoin L1              Relayer Network          Solana
 3. **Each validator** independently confirms the lock and signs an attestation with Dilithium
 4. **Attestation Merkle tree** constructed from all validator signatures (see Section 5)
 5. **Solana program** verifies the Merkle root and proof (hash-based — quantum-safe)
-6. **pSOQ minted** to the user's Solana wallet
+6. **The operator's program mints** the Solana-side token to the user's Solana wallet
 
 ### Validation Rules (Per Validator)
 
@@ -157,7 +153,7 @@ User                    Soqucoin L1              Relayer Network          Solana
 
 ## 4. Dilithium Attestation Protocol
 
-This is the core security innovation of SOQ-TEC. Every bridge attestation is signed with ML-DSA-44 (Dilithium), making it the **first cross-chain bridge with a fully post-quantum attestation layer**.
+This is the core security design of SOQ-TEC. Every bridge attestation is signed with ML-DSA-44 (Dilithium).
 
 ### 4.1 Validator Key Architecture
 
@@ -290,13 +286,13 @@ pub struct AttestationRegistry {
 
 ## 6. Proof of Reserves
 
-The bridge maintains transparent Proof of Reserves:
+The software publishes a proof-of-reserves attestation for the operator's vault. Backing is the operator's obligation.
 
 ```
 Backing Ratio = SOQ_locked_in_vault / pSOQ_total_supply
 ```
 
-**Target**: 1.00 (fully backed)
+**Target**: 1.00, maintained by the operator
 
 **On-chain attestation** (Solana):
 - `vault_balance` field in `BridgeState` account
@@ -304,7 +300,7 @@ Backing Ratio = SOQ_locked_in_vault / pSOQ_total_supply
 - Publicly queryable — anyone can verify backing ratio
 
 **Soqucoin verification**:
-- Vault address is publicly known
+- The operator publishes the vault address
 - Balance verifiable via `getbalance` RPC or block explorer
 - UTXO-based — every input and output is auditable
 
@@ -325,12 +321,12 @@ Backing Ratio = SOQ_locked_in_vault / pSOQ_total_supply
 | Backing ratio | < 0.95 | Pause bridge |
 | Validator liveness | < 3 of 5 responding | Pause bridge |
 | Attestation conflict | Any equivocation detected | Pause + flag validator |
-| Manual trigger | Admin 2-of-3 multisig | Pause bridge |
+| Manual trigger | Operator 2-of-3 multisig | Pause bridge |
 
 ### Recovery
 
-1. Admin investigates the trigger condition
-2. If legitimate: `resume_bridge()` with 2-of-3 admin multisig (Dilithium on Soqucoin side)
+1. The operator investigates the trigger condition
+2. If legitimate: `resume_bridge()` with the operator's 2-of-3 multisig (Dilithium on Soqucoin side)
 3. If attack: keep paused, revoke compromised validator keys, begin incident response
 
 ---
@@ -443,17 +439,9 @@ Event Detection     →  Attestation Signing  →  Verification        →  Exec
 
 ---
 
-## 10. Fee Schedule
+## 10. Fee Parameters
 
-| Operation | Fee | Minimum |
-|-----------|-----|---------|
-| Solana → Soqucoin (pSOQ burn → SOQ release) | 0.1% of amount | 10 SOQ |
-| Soqucoin → Solana (SOQ lock → pSOQ mint) | 0.1% of amount | 10 SOQ |
-| PoR attestation update | Free | — |
-
-Fees are deducted from the transfer amount. Fee distribution:
-- 80% to relayer validators (operational costs)
-- 20% to protocol treasury (development fund)
+Fees are a deployment parameter set by the operator. The software supports a percentage fee with a minimum transfer amount and a configurable split between relayer validators and an operator-defined account. Fees, when configured, are deducted from the transfer amount. Proof-of-reserves attestation updates carry no fee. Soqucoin Labs charges no fee and receives no fee.
 
 ---
 
@@ -514,21 +502,20 @@ Ed25519 touches the VALUE: never.
 
 ## 12. Upgrade Path
 
-### Hackathon (v1.0)
+### Hackathon (v1.0, April to May 2026, test networks)
 - Custom 3-of-5 relayer with Dilithium attestation
-- Solana devnet deployment
-- SOQ-TEC Terminal dashboard with live PoR
+- Solana devnet test deployment
+- SOQ-TEC Terminal demonstration dashboard with a proof-of-reserves panel
 - Merkle commitment scheme for Solana-side verification
 
-### Post-Hackathon (v1.1)
-- XMSS-Lite Revolving Vault program (Patent #64/035,857 filed; mainnet deployment after L1 launch)
-- Solana mainnet deployment
+### Planned software capabilities
+- XMSS-Lite Revolving Vault program (Patent #64/035,857 filed)
+- Solana mainnet program support
 - Permissionless validator onboarding (stake + Dilithium key registration)
 - Dilithium BPF verifier on Solana (eliminates Merkle root pre-registration)
-
-### Production (v2.0)
-- Multi-asset support (any SPL token → PQ custody via XMSS-Lite)
-- Soqucoin mainnet vault
-- LatticeFold+ L2 fast-path for bridge settlements
-- Full external audit (bridge-specific, in addition to Halborn L1 audit)
+- Multi-asset vaults (any SPL token via XMSS-Lite)
+- L2 fast-path for bridge settlements
+- External audit of the bridge program and relayer
 - Client SDK for XMSS key tree generation and vault management
+
+Deployment on any mainnet is a decision for a licensed operator.

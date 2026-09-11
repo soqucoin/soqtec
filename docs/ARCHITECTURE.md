@@ -1,12 +1,9 @@
 # SOQ-TEC Architecture
 
-> ⚠️ **Status (28 August 2026): open-source project in active development. No service is operating yet.**
-> SOQ-TEC remains the planned automated path between pSOQ and native SOQ. No conversion,
-> redemption, or exchange service operates or is offered today, and none operates before
-> third-party audit and review. An upgraded conversion path is in review; details will be
-> published when it clears. Nothing in this repository is a promise of redemption, of
-> backing, or of a timeline.
-
+> This document describes the software architecture. The relayer committee, the vault keys and the admin
+> role are roles that a licensed operator fills when it deploys SOQ-TEC. Soqucoin Labs filled those roles
+> only on Solana devnet and Soqucoin stagenet for the 2026 hackathon demonstration and operates no bridge,
+> vault or relayer for the public. Endpoints named below were demonstration endpoints on test networks.
 
 > **SOQ-TEC** — Soqucoin Operations for Quantum-Tolerant Ecosystem Custody
 
@@ -14,9 +11,9 @@
 
 ## Overview
 
-SOQ-TEC is a bidirectional cross-chain bridge connecting Solana (classical Ed25519) to Soqucoin L1 (NIST FIPS 204 ML-DSA-44 Dilithium). It provides quantum-safe custody for Solana-native assets by enabling users to bridge value into a post-quantum L1 for long-term storage, and bridge back when speed and liquidity are needed.
+SOQ-TEC is cross-chain settlement software connecting Solana (classical Ed25519) and Soqucoin L1 (NIST FIPS 204 ML-DSA-44 Dilithium). A licensed custodian deploying it can hold Solana-native value on the post-quantum chain and return it to Solana.
 
-**Core innovation:** SOQ-TEC is the first cross-chain bridge with a **fully post-quantum attestation layer**. Relayer validators sign attestations with ML-DSA-44 (Dilithium), not Ed25519 or ECDSA. No attacker (classical or quantum) can forge bridge attestations without breaking NIST FIPS 204.
+**Attestation layer:** Relayer validators sign attestations with ML-DSA-44 (Dilithium), not Ed25519 or ECDSA. Forging a bridge attestation requires breaking NIST FIPS 204.
 
 ---
 
@@ -153,7 +150,7 @@ The attestation signature is the *trust anchor* of the gateway. If an attacker c
 
 ### 3. Soqucoin Vault (C++)
 
-A 3-of-5 Dilithium multisig custody address on Soqucoin L1.
+A 3-of-5 ML-DSA-44 multisig address on Soqucoin L1 whose keys the operator holds.
 
 ```
 # P2SH-style multisig with Dilithium
@@ -173,7 +170,7 @@ Static HTML/CSS/JS dashboard with Pip-Boy CRT aesthetic.
 **Data Sources:**
 - Soqucoin block data: `xplorer.soqu.org/api/blocks/tip/height`
 - Solana slot: Solana devnet JSON-RPC
-- Bridge state: Relayer REST API (`/api/status`, `/api/activity`)
+- Bridge state: Relayer REST API (`/api/status`, `/api/activity`), demonstration endpoints
 - Proof of Reserves: On-chain attestation from both chains
 
 ---
@@ -195,7 +192,7 @@ Static HTML/CSS/JS dashboard with Pip-Boy CRT aesthetic.
 |-----------|-----|
 | **Classical Ed25519** | Broken by Shor's algorithm on CRQC |
 | **Single relayer** | 3-of-5 threshold prevents unilateral action |
-| **Solana for PQ custody** | That's literally why SOQ-TEC exists |
+| **Solana for long-term post-quantum custody** | SOQ-TEC provides the settlement path |
 | **Existing bridges** | ECDSA/Ed25519 attestations are quantum-vulnerable |
 
 ---
@@ -223,9 +220,8 @@ The only non-PQ component is Solana's own transaction signing (Ed25519), which i
 |----------|----------|-----------|---------|
 | **Attestation signatures** | ECDSA (secp256k1) ❌ | Ed25519 (ULN) ❌ | **ML-DSA-44** ✅ |
 | **On-chain verification** | ECDSA multisig ❌ | Oracle verify ❌ | **Merkle proof** ✅ |
-| **Custody layer** | EOA / multisig ❌ | N/A | **Dilithium 3-of-5** ✅ |
+| **Vault keys** | EOA / multisig ❌ | N/A | **ML-DSA-44 3-of-5** ✅ |
 | **NIST compliant** | No | No | **FIPS 204 + FIPS 180** ✅ |
-| **Survived $320M-class attack** | No (hacked 2022) | Not tested | **Quantum-resistant by design** |
 
 ---
 
@@ -247,11 +243,11 @@ SOQ-TEC does not compete with Winternitz; rather, it complements it.
 
 ---
 
-## Network Endpoints
+## Demonstration endpoints (2026)
 
 | Service | URL | Purpose |
 |---------|-----|---------|
-| SOQ-TEC Terminal | `soqtec.soqu.org` | Bridge dashboard |
+| SOQ-TEC Terminal | `soqtec.soqu.org` | Demonstration dashboard |
 | Soqucoin Explorer | `xplorer.soqu.org` | Block explorer |
 | Soqucoin RPC | `rpc.soqu.org` | Node JSON-RPC |
 | Solana (devnet) | `api.devnet.solana.com` | Solana devnet RPC |
@@ -263,4 +259,4 @@ SOQ-TEC does not compete with Winternitz; rather, it complements it.
 
 Soqucoin's Layer 2 (LatticeFold+ recursive verification) is on the roadmap to bring high-throughput PQ transactions to the ecosystem. When shipped, bridge settlements can occur on L2 with sub-second finality while maintaining full quantum security, giving users both speed AND quantum safety without leaving the Soqucoin ecosystem.
 
-For the hackathon, the honest pitch is: **security for storage, speed when you bridge back to Solana.**
+Design goal: **post-quantum security for storage on Soqucoin, Solana speed for trading, with a licensed operator running the software.**

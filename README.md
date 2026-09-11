@@ -1,16 +1,15 @@
 # SOQ-TEC
 
-> ⚠️ **Status (28 August 2026): open-source project in active development. No service is operating yet.**
-> SOQ-TEC remains the planned automated path between pSOQ and native SOQ. No conversion,
-> redemption, or exchange service operates or is offered today, and none operates before
-> third-party audit and review. An upgraded conversion path is in review; details will be
-> published when it clears. Nothing in this repository is a promise of redemption, of
-> backing, or of a timeline.
-
+> SOQ-TEC is post-quantum custody and cross-chain settlement software for regulated custodians, exchanges and
+> issuers, who operate it under their own licences. Soqucoin Labs builds and licenses the software. It does
+> not hold user funds or keys and does not operate custody, bridging, conversion or redemption services for
+> the public. Everything below was demonstrated on Solana devnet and Soqucoin stagenet with test tokens during
+> the Colosseum Frontier 2026 hackathon (April to May 2026). There is no live deployment. pSOQ is a token on
+> Solana. The path from pSOQ to SOQ is in legal review and details will be published when it is complete.
 
 **Soqucoin Operations for Quantum-Tolerant Ecosystem Custody**
 
-> *Vault-Tec saved humanity from nuclear war. SOQ-TEC saves your assets from quantum war.*
+> *Post-quantum custody software for the assets a licensed custodian holds.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Colosseum Frontier](https://img.shields.io/badge/Colosseum-Frontier%202026-purple.svg)](https://arena.colosseum.org/hackathon)
@@ -36,23 +35,25 @@ The [Winternitz Vault](https://github.com/blueshift-gg/solana-winternitz-vault) 
 
 ## The Solution
 
-**SOQ-TEC is the quantum-safe custody layer for Solana.**
+**SOQ-TEC is post-quantum custody and settlement software that a licensed custodian can deploy for Solana assets.**
 
 Soqucoin is a purpose-built, [ML-DSA-44 (FIPS 204)](https://csrc.nist.gov/pubs/fips/204/final) Dilithium-native L1 blockchain designed from genesis for post-quantum safety. It's not fast — it's Dogecoin-speed (~1-minute blocks, UTXO model). **And that's the point.**
 
-Think of it like a safety deposit box at a bank:
-- **Solana** = the trading floor (fast, liquid, classical)
-- **Soqucoin** = the vault (NIST Dilithium, Halborn-audited, quantum-safe)  
-- **SOQ-TEC** = the bridge between them
+The three parts:
+- **Solana** is the trading floor (fast, liquid, classical signatures)
+- **Soqucoin** is the post-quantum settlement layer (ML-DSA-44; the L1 was audited by Halborn)
+- **SOQ-TEC** is the software that moves value between the two chains when a licensed operator runs it
 
-Our bridge doesn't take value **from** Solana. It extends Solana's security perimeter **into** post-quantum territory.
+The software does not take value from Solana. It gives a custodian a post-quantum place to hold Solana-side value.
+
+Flow the software implements. Custody sits with the operator's vault keys.
 
 ```
 Solana Wallet (Ed25519, vulnerable)
     → Winternitz Vault (hash-based PQ on Solana)
         → SOQ-TEC Bridge (relayer attestation)
-            → SOQ-TEC Vault (Dilithium PQ custody on Soqucoin L1)
-                → Bridge back when you need Solana speed
+            → Operator's vault (ML-DSA-44 keys on Soqucoin L1)
+                → Return path to Solana (operator's program mints the Solana-side token)
 ```
 
 ---
@@ -61,14 +62,14 @@ Solana Wallet (Ed25519, vulnerable)
 
 ### Bridge Components
 
-| Component | Technology | Status |
+| Component | Technology | Demonstration status (2026 hackathon) |
 |-----------|-----------|--------|
-| **Solana Bridge Program** | Anchor/Rust — SPL burn/mint, circuit breaker, PoR | Deployed (devnet) |
-| **XMSS Vault Program** | Anchor/Rust — WOTS+ signature verification, Merkle proof, CPI burn | Deployed (devnet) |
-| **DUA/CEA Pipeline** | TypeScript/Node — Dual Unicast Adapter + Chain Event Aggregator | Deployed |
-| **Relayer Service** | TypeScript/Node — event watchers, persistent seen-set, soq-signer routing | Deployed |
-| **SoquShield Bridge** | Dart/Flutter — native WOTS+ signer, vault TX builder | Shipped |
-| **SOQ-TEC Terminal** | HTML/CSS/JS — Pip-Boy themed operations dashboard | Deployed |
+| **Solana Bridge Program** | Anchor/Rust — SPL burn/mint, circuit breaker, PoR | Ran on Solana devnet, April to May 2026 |
+| **XMSS Vault Program** | Anchor/Rust — WOTS+ signature verification, Merkle proof, CPI burn | Ran on Solana devnet, April to May 2026 |
+| **DUA/CEA Pipeline** | TypeScript/Node — Dual Unicast Adapter + Chain Event Aggregator | Ran on devnet and stagenet, April to May 2026 |
+| **Relayer Service** | TypeScript/Node — event watchers, persistent seen-set, signer routing | Ran on devnet and stagenet, April to May 2026 |
+| **SoquShield Bridge** | Dart/Flutter — native WOTS+ signer, vault TX builder | Dart port, cross-verified against the JS reference |
+| **SOQ-TEC Terminal** | HTML/CSS/JS — retro terminal dashboard | Demonstration dashboard, test data |
 | ~~PAUL Lane Manager~~ | ~~Python — Pre-Allocated UTXO Lanes~~ | 🔴 Retired (May 2026) |
 
 ### How It Works
@@ -91,13 +92,13 @@ flowchart LR
 
 ### XMSS Vault Integration (Patent Claims 1+4+11)
 
-The XMSS vault is the production path — an **end-to-end quantum-safe chain** where Ed25519 is used ONLY for Solana transaction fees, never for value custody:
+The XMSS vault is the primary path — an **end-to-end quantum-safe chain** where Ed25519 is used ONLY for Solana transaction fees, never for value custody:
 
 1. User generates an XMSS-Lite key tree (Keccak256 WOTS+, w=16)
 2. Vault program verifies WOTS+ signature + Merkle proof on-chain
 3. Vault CPI-calls `burn_for_redemption` on the bridge program
 4. Relayer detects the burn event (identical to native burns)
-5. soq-signer releases SOQ on L1 via ML-DSA-44 (Dilithium)
+5. The operator's ML-DSA-44 signer releases SOQ on L1
 
 **Value custody chain:** `WOTS+ (Keccak) → ML-DSA-44 (Dilithium)` — zero classical touch.
 
@@ -113,16 +114,14 @@ SoquShield (Flutter iOS/Android) includes a complete Dart port of the XMSS-Lite 
 
 ## SOQ-TEC Terminal
 
-The bridge dashboard uses a Fallout Pip-Boy / Vault-Tec inspired terminal aesthetic:
+The terminal is a demonstration dashboard that showed test-network data during the hackathon. It uses a retro CRT terminal aesthetic:
 
-- **Boot Sequence** — Full BIOS-style system initialization
-- **Vault Status** — Real-time balance, backing ratio, Dilithium protection
+- **Boot Sequence** — BIOS-style system initialization
+- **Vault Status** — Vault balance and backing ratio panels (test data)
 - **Network Comparison** — Soqucoin (PQ-NATIVE) vs Solana (QUANTUM EXPOSED)
-- **Bridge Activity** — Live transaction feed
-- **Proof of Reserves** — Visual SOQ locked vs pSOQ minted
+- **Bridge Activity** — Transaction feed (test data)
+- **Proof of Reserves** — SOQ locked vs pSOQ minted panel (test data)
 - **CRT Effects** — Scanlines, vignette, phosphor glow, screen flicker
-
-**Live**: [soqtec.soqu.org](https://soqtec.soqu.org)
 
 ---
 
@@ -131,12 +130,12 @@ The bridge dashboard uses a Fallout Pip-Boy / Vault-Tec inspired terminal aesthe
 | Asset | Detail |
 |-------|--------|
 | **Live Testnet** | Soqucoin Testnet3 — [xplorer.soqu.org](https://xplorer.soqu.org) |
-| **Security Audit** | Halborn — completed & fully remediated (2026) |
+| **Security Audit** | Halborn audited the Soqucoin L1 (2026). The bridge program and relayer are unaudited. |
 | **Cryptography** | NIST FIPS 204 ML-DSA-44 (Dilithium) — production, not prototype |
 | **Patent** | Application #63/999,796 — PQ blockchain consensus |
 | **Codebase** | 100,000+ LOC open source C++ |
 | **Founder** | 25 years USAF Cyber Operations + Oracle security engineering |
-| **pSOQ Token** | [Live on Solana](https://pump.fun/coin/6NX2MWBuJM2Fn63K4hUgMPivLXHV8pwsU1yTdmjKpump) — 1B supply |
+| **pSOQ Token** | pSOQ is a token on Solana. The path from pSOQ to SOQ is in legal review and details will be published when it is complete. |
 
 ---
 
@@ -144,16 +143,17 @@ The bridge dashboard uses a Fallout Pip-Boy / Vault-Tec inspired terminal aesthe
 
 | Revenue Stream | Model |
 |---------------|-------|
-| **Bridge fees** | 0.1% per cross-chain transfer |
-| **PQ custody services** | Institutional cold storage |
+| **Technology licensing** | SOQ-TEC custody and settlement software licensed to custodians, exchanges and issuers who operate it under their own licences |
 | **PQCAT compliance** | PQC readiness scanning for Solana protocols |
-| **SDK licensing** | Bridge tech licensed to other L1s |
+| **SDK licensing** | Bridge technology licensed to other L1s |
 
 **TAM**: $180B+ Solana TVL with quantum-vulnerable Ed25519 exposure.
 
 ---
 
 ## Roadmap
+
+Hackathon build log, April 2026. Test networks only.
 
 | Week | Focus |
 |------|-------|
@@ -209,11 +209,10 @@ soqtec/
 
 ## Links
 
-- **Dashboard**: [soqtec.soqu.org](https://soqtec.soqu.org)
+- **Demonstration dashboard (test networks)**: [soqtec.soqu.org](https://soqtec.soqu.org)
 - **Explorer**: [xplorer.soqu.org](https://xplorer.soqu.org)
 - **Soqucoin**: [soqu.org](https://soqu.org)
 - **Labs**: [soqucoin.com](https://soqucoin.com)
-- **pSOQ Token**: [pump.fun](https://pump.fun/coin/6NX2MWBuJM2Fn63K4hUgMPivLXHV8pwsU1yTdmjKpump)
 - **Twitter**: [@soqucoin](https://x.com/soqucoin)
 
 ---
@@ -222,7 +221,7 @@ soqtec/
 
 **Colosseum Frontier 2026** — April 6 – May 11, 2026
 
-$2.75M in prizes. SOQ-TEC competes as the first quantum-tolerant custody bridge for Solana.
+SOQ-TEC was entered in Colosseum Frontier 2026 as post-quantum custody software for Solana assets.
 
 > *"Prepared for the Quantum Future."*
 
