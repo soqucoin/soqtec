@@ -484,7 +484,7 @@ async function main() {
   info('Source Code:       https://github.com/soqucoin/soqtec');
 
   console.log(`\n${D}  ── TEAM ─────────────────────────────────────────${X}`);
-  info('Soqucoin Labs Inc. | SDVOSB | New York, NY');
+  info('Soqucoin Labs Inc. | SDVOSB | Sheridan, WY');
   info('Halborn Security audited the Soqucoin L1 (2026); the bridge program and relayer are unaudited');
 
   console.log(`\n${B}${C}${'═'.repeat(64)}${X}`);
