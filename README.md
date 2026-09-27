@@ -235,5 +235,5 @@ MIT — see [LICENSE](LICENSE) for details.
 
 <p align="center">
   <strong>SOQ-TEC</strong> — Built by <a href="https://soqucoin.com">Soqucoin Labs Inc.</a><br>
-  228 Park Ave S, Pmb 85451, New York, NY 10003
+  30 N Gould St, Ste 69171, Sheridan, WY 82801
 </p>
